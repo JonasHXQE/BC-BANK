@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "5449433145",
+    "firebase_url": "https://blackcore-bank-default-rtdb.firebaseio.com",
+    "project_id": "blackcore-bank",
+    "storage_bucket": "blackcore-bank.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:5449433145:android:72d00fae2f7fc44eedcde8",
+        "android_client_info": {
+          "package_name": "com.blackcore.bank"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "5449433145-36p2t8me9kgivrmtpkjuphfvskmdaeov.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAlLNWqU4RWt0ar-of9HA2JhcfJRuy9b0E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "5449433145-36p2t8me9kgivrmtpkjuphfvskmdaeov.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
