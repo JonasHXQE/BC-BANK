@@ -126,19 +126,23 @@ class SessionManager(context: Context) {
     }
 
     fun isRememberSession(): Boolean = prefs.getBoolean(KEY_REMEMBER_SESSION, true)
+    fun setRememberSession(remember: Boolean) {
+        prefs.edit().putBoolean(KEY_REMEMBER_SESSION, remember).apply()
+    }
 
-    fun getUserPin(): String = prefs.getString(KEY_USER_PIN, "") ?: ""
+    fun getUserPin(): String = prefs.getString(KEY_USER_PIN, "")?.trim() ?: ""
 
     fun setUserPin(pin: String) {
-        prefs.edit().putString(KEY_USER_PIN, pin).apply()
+        prefs.edit().putString(KEY_USER_PIN, pin.trim()).apply()
     }
 
     fun validatePin(inputPin: String): Boolean {
-        val currentPin = getUserPin()
+        val cleanInput = inputPin.trim()
+        val currentPin = getUserPin().trim()
         if (currentPin.isBlank()) {
-            return (inputPin.length == 6 || inputPin.length >= 4) && inputPin.all { it.isDigit() }
+            return (cleanInput.length == 6 || cleanInput.length >= 4) && cleanInput.all { it.isDigit() }
         }
-        return inputPin == currentPin
+        return cleanInput == currentPin
     }
     
     fun setBiometricEnabled(enabled: Boolean) {

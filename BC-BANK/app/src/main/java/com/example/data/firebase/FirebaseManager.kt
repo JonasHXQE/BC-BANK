@@ -802,11 +802,20 @@ object FirebaseManager {
         return try {
             val db = FirebaseFirestore.getInstance()
             val pinDoc = db.collection("security_pins").document(uid).get().await()
-            if (pinDoc.exists()) {
+            val pinFromDedicated = if (pinDoc.exists()) {
                 pinDoc.getString("pin")
+                    ?: pinDoc.getLong("pin")?.toString()?.padStart(6, '0')
+                    ?: pinDoc.get("pin")?.toString()
+            } else null
+
+            if (!pinFromDedicated.isNullOrBlank()) {
+                pinFromDedicated.trim()
             } else {
                 val userDoc = db.collection("users").document(uid).get().await()
-                userDoc.getString("securityPin")
+                val pinFromUser = userDoc.getString("securityPin")
+                    ?: userDoc.getLong("securityPin")?.toString()?.padStart(6, '0')
+                    ?: userDoc.get("securityPin")?.toString()
+                if (!pinFromUser.isNullOrBlank()) pinFromUser.trim() else null
             }
         } catch (e: Exception) {
             Log.w(TAG, "getUserSecurityPin error: ${e.message}")
@@ -2300,10 +2309,21 @@ object FirebaseManager {
             }
 
             // Get CIP and Security PIN
-            val userPin = userDoc.getString("securityPin") ?: try {
-                val pinDoc = db.collection("security_pins").document(uid).get().await()
-                pinDoc.getString("pin") ?: ""
-            } catch (e: Exception) { "" }
+            val pinFromUser = userDoc.getString("securityPin")
+                ?: userDoc.getLong("securityPin")?.toString()?.padStart(6, '0')
+                ?: userDoc.get("securityPin")?.toString()
+            val userPin = if (!pinFromUser.isNullOrBlank()) {
+                pinFromUser.trim()
+            } else {
+                try {
+                    val pinDoc = db.collection("security_pins").document(uid).get().await()
+                    val p = pinDoc.getString("pin")
+                        ?: pinDoc.getLong("pin")?.toString()?.padStart(6, '0')
+                        ?: pinDoc.get("pin")?.toString()
+                        ?: ""
+                    p.trim()
+                } catch (e: Exception) { "" }
+            }
 
             var userCip = userDoc.getString("cipCode") ?: ""
             if (userCip.isBlank() && profileComplete) {

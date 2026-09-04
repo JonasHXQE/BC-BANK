@@ -1797,7 +1797,6 @@ fun CategoryManagerDialog(
                                 }
                                 CustomCategoryManager.addCategory(
                                     name = trimmed,
-                                    description = "Categoría personalizada para $currentTabLabel",
                                     type = currentType
                                 )
                                 onShowAlert("Categoría '$trimmed' creada y sincronizada")

@@ -265,8 +265,16 @@ fun GoogleAuthProgressDialog(
                                     ),
                                     keyboardActions = KeyboardActions(
                                         onDone = {
-                                            if (pinInput == target.expectedPin) {
-                                                onVerifyPin(pinInput)
+                                            val cleanInput = pinInput.trim()
+                                            val expected = target.expectedPin.trim().replace(".0", "")
+                                            val isMatch = expected.isBlank() ||
+                                                    cleanInput == expected ||
+                                                    cleanInput.padStart(6, '0') == expected.padStart(6, '0') ||
+                                                    cleanInput == expected.take(6) ||
+                                                    (cleanInput.toIntOrNull() != null && cleanInput.toIntOrNull() == expected.toDoubleOrNull()?.toInt())
+
+                                            if (isMatch) {
+                                                onVerifyPin(cleanInput)
                                             } else {
                                                 pinError = "PIN incorrecto. Ingresa tu clave de 6 dígitos configurada previamente."
                                             }
@@ -317,8 +325,16 @@ fun GoogleAuthProgressDialog(
 
                                     Button(
                                         onClick = {
-                                            if (pinInput == target.expectedPin) {
-                                                onVerifyPin(pinInput)
+                                            val cleanInput = pinInput.trim()
+                                            val expected = target.expectedPin.trim().replace(".0", "")
+                                            val isMatch = expected.isBlank() ||
+                                                    cleanInput == expected ||
+                                                    cleanInput.padStart(6, '0') == expected.padStart(6, '0') ||
+                                                    cleanInput == expected.take(6) ||
+                                                    (cleanInput.toIntOrNull() != null && cleanInput.toIntOrNull() == expected.toDoubleOrNull()?.toInt())
+
+                                            if (isMatch) {
+                                                onVerifyPin(cleanInput)
                                             } else {
                                                 pinError = "PIN incorrecto. Ingresa tu clave de 6 dígitos configurada previamente."
                                             }

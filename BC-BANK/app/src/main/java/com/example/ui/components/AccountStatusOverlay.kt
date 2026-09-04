@@ -82,11 +82,11 @@ import java.util.Locale
 
 @Composable
 fun AccountStatusOverlay(
-    statusInfo: AccountSecurityStatus,
+    statusInfo: AccountSecurityStatus?,
     supportChannels: List<SupportChannel> = emptyList(),
     onLogout: () -> Unit
 ) {
-    if (statusInfo.status == AccountStatusType.ACTIVE) return
+    if (statusInfo == null || statusInfo.status == AccountStatusType.ACTIVE) return
 
     val context = LocalContext.current
     val isSuspended = statusInfo.status == AccountStatusType.SUSPENDED
@@ -294,31 +294,31 @@ fun SupportChannelCard(
     onOpen: () -> Unit
 ) {
     val (icon, badgeColor, buttonText, containerBg) = when (channel.type.uppercase()) {
-        "WHATSAPP" -> Quadruple(
+        "WHATSAPP" -> ChannelVisuals(
             Icons.Default.Send,
             Color(0xFF25D366),
             "Chatear por WhatsApp",
             Color(0xFF064E3B).copy(alpha = 0.35f)
         )
-        "TELEGRAM" -> Quadruple(
+        "TELEGRAM" -> ChannelVisuals(
             Icons.Default.Send,
             Color(0xFF38BDF8),
             "Abrir Telegram",
             Color(0xFF0369A1).copy(alpha = 0.30f)
         )
-        "EMAIL" -> Quadruple(
+        "EMAIL" -> ChannelVisuals(
             Icons.Default.Email,
             Color(0xFFA78BFA),
             "Enviar Correo",
             Color(0xFF4C1D95).copy(alpha = 0.30f)
         )
-        "PHONE" -> Quadruple(
+        "PHONE" -> ChannelVisuals(
             Icons.Default.Call,
             EmeraldLight,
             "Llamar a Central",
             EmeraldDark.copy(alpha = 0.40f)
         )
-        else -> Quadruple(
+        else -> ChannelVisuals(
             Icons.Default.HeadsetMic,
             EmeraldLight,
             "Contactar Soporte",
@@ -499,7 +499,12 @@ private fun launchChannelAction(context: android.content.Context, channel: Suppo
     } catch (_: Exception) {}
 }
 
-private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+private data class ChannelVisuals(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val badgeColor: Color,
+    val buttonText: String,
+    val containerBg: Color
+)
 
 @Composable
 private fun CardItem(

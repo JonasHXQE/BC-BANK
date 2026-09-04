@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -162,6 +164,7 @@ fun DashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .widthIn(max = 640.dp)
+                .align(Alignment.TopCenter)
                 .padding(horizontal = 20.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -591,7 +594,10 @@ fun DashboardScreen(
 
         // 5. Recent Activity Section
         item {
-            Column {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -604,30 +610,37 @@ fun DashboardScreen(
                         fontFamily = FontFamily.Serif,
                         color = TextPrimary
                     )
+                }
 
-                    // Filter Chips
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("ALL" to "Todos", "INCOME" to "Ingresos", "EXPENSE" to "Egresos").forEach { (key, label) ->
-                            val isSelected = selectedFilter == key
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(if (isSelected) Color(0xFF241D42) else SurfaceCard)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) PrimaryViolet else BorderGlass,
-                                        RoundedCornerShape(20.dp)
-                                    )
-                                    .clickable { onFilterChanged(key) }
-                                    .padding(horizontal = 12.dp, vertical = 5.dp)
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) Color(0xFFC7D2FE) else TextSecondary
+                // Filter Chips - fully scrollable and responsive so chips never squeeze or break text
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("ALL" to "Todos", "INCOME" to "Ingresos", "EXPENSE" to "Egresos").forEach { (key, label) ->
+                        val isSelected = selectedFilter == key
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (isSelected) Color(0xFF241D42) else SurfaceCard)
+                                .border(
+                                    1.dp,
+                                    if (isSelected) PrimaryViolet else BorderGlass,
+                                    RoundedCornerShape(20.dp)
                                 )
-                            }
+                                .clickable { onFilterChanged(key) }
+                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) Color(0xFFC7D2FE) else TextSecondary
+                            )
                         }
                     }
                 }

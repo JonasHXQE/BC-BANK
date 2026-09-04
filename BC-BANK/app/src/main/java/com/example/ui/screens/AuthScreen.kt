@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -70,9 +71,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -82,6 +85,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.AccentGold
 import com.example.ui.theme.BackgroundDark
@@ -191,24 +195,31 @@ fun AuthScreen(
         ) {
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Banking Emblem
+            // Banking Logo
             Box(
                 modifier = Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .background(
+                    .size(76.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xFF0F172A))
+                    .border(
+                        1.5.dp,
                         Brush.linearGradient(
-                            colors = listOf(PrimaryViolet, PrimaryVioletDark)
-                        )
-                    )
-                    .border(1.5.dp, BorderGlass, CircleShape),
+                            listOf(
+                                EmeraldPrimary.copy(alpha = 0.8f),
+                                AccentGold.copy(alpha = 0.5f)
+                            )
+                        ),
+                        RoundedCornerShape(18.dp)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.AccountBalance,
-                    contentDescription = "BC-BANK Emblem",
-                    tint = GoldAccent,
-                    modifier = Modifier.size(36.dp)
+                Image(
+                    painter = painterResource(id = R.drawable.img_bcbank_logo),
+                    contentDescription = "BC-BANK Logo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(18.dp))
                 )
             }
 
