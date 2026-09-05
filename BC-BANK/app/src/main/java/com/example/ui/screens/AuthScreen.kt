@@ -143,8 +143,16 @@ fun AuthScreen(
     val context = LocalContext.current
     var lastBackPressTime by remember { mutableStateOf(0L) }
 
-    LaunchedEffect(isLoading) {
-        if (!isLoading) {
+    LaunchedEffect(isLoading, errorMessage) {
+        if (!isLoading || errorMessage != null) {
+            isGoogleConnecting = false
+        }
+    }
+
+    LaunchedEffect(isGoogleConnecting) {
+        if (isGoogleConnecting) {
+            // Auto-reset button state after 2 seconds to ensure it never gets locked
+            kotlinx.coroutines.delay(2000L)
             isGoogleConnecting = false
         }
     }
@@ -214,7 +222,7 @@ fun AuthScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.img_bcbank_logo),
+                    painter = painterResource(id = R.drawable.ic_bcbank_brand_logo),
                     contentDescription = "BC-BANK Logo",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
@@ -736,52 +744,6 @@ fun AuthScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // Google Loading Modal Dialog
-        if (isGoogleConnecting) {
-            Dialog(
-                onDismissRequest = { /* Modal persists during active Google request */ },
-                properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
-            ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = EmeraldPrimary,
-                            modifier = Modifier.size(44.dp),
-                            strokeWidth = 3.dp
-                        )
-                        Spacer(modifier = Modifier.height(18.dp))
-                        Text(
-                            text = "Conectando con Google",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Iniciando servicio de autenticación segura...",
-                            fontSize = 13.sp,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-        }
-
         // Forgot Password Dialog
         if (showForgotPasswordDialog) {
             AlertDialog(
@@ -881,28 +843,43 @@ private fun GoogleAuthSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                // Google "G" logo representation
-                Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(Color.White),
-                    contentAlignment = Alignment.Center
-                ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        color = EmeraldPrimary,
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.5.dp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "G",
+                        text = "Conectando...",
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF4285F4)
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextSecondary
+                    )
+                } else {
+                    // Google "G" logo representation
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "G",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF4285F4)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Continuar con Google",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
                     )
                 }
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Continuar con Google",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
-                )
             }
         }
     }

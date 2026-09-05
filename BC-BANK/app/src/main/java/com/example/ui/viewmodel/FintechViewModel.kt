@@ -129,6 +129,9 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
     val activeWithdrawalReservation: StateFlow<CloudWithdrawal?> = _activeWithdrawalReservation.asStateFlow()
 
     // User details state
+    private val _userName = MutableStateFlow(sessionManager.getUserName())
+    val userName: StateFlow<String> = _userName.asStateFlow()
+
     private val _userPhone = MutableStateFlow(sessionManager.getUserPhone())
     val userPhone: StateFlow<String> = _userPhone.asStateFlow()
 
@@ -159,6 +162,26 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
         _transactionFilter
     ) { txs, filter ->
         when (filter) {
+            "SERVICES" -> txs.filter { tx ->
+                tx.title.startsWith("Pago de Servicio", ignoreCase = true) ||
+                tx.category.equals("Servicios", ignoreCase = true) ||
+                tx.category.equals("Servicio", ignoreCase = true)
+            }
+            "TRANSFERS" -> txs.filter { tx ->
+                tx.title.startsWith("Transferencia", ignoreCase = true) ||
+                (tx.title.contains(" a ", ignoreCase = true) && tx.type == "EXPENSE" && !tx.title.startsWith("Pago", ignoreCase = true) && !tx.title.startsWith("Aporte", ignoreCase = true))
+            }
+            "DEPOSITS" -> txs.filter { tx ->
+                tx.type == "INCOME" ||
+                tx.title.contains("Depósito", ignoreCase = true) ||
+                tx.title.contains("Abono", ignoreCase = true) ||
+                tx.title.contains("Recarga", ignoreCase = true) ||
+                tx.title.contains("Reintegro", ignoreCase = true)
+            }
+            "WITHDRAWALS" -> txs.filter { tx ->
+                tx.title.contains("Retiro", ignoreCase = true) ||
+                tx.type == "WITHDRAWAL"
+            }
             "INCOME" -> txs.filter { it.type == "INCOME" }
             "EXPENSE" -> txs.filter { it.type == "EXPENSE" || it.type == "GOAL_DEPOSIT" }
             else -> txs
@@ -205,7 +228,18 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
     fun getUserEmail(): String = sessionManager.getUserEmail()
     fun getUserName(): String = sessionManager.getUserName().ifEmpty { "Usuario" }
     fun isBiometricEnabled(): Boolean = sessionManager.isBiometricEnabled()
+    fun setBiometricEnabled(enabled: Boolean) {
+        sessionManager.setBiometricEnabled(enabled)
+    }
     fun isPushNotificationsEnabled(): Boolean = true
+
+    private val _themeMode = MutableStateFlow(sessionManager.getThemeMode())
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
+
+    fun setThemeMode(mode: String) {
+        sessionManager.setThemeMode(mode)
+        _themeMode.value = mode
+    }
 
     private var userEventListeners: List<ListenerRegistration> = emptyList()
 
@@ -351,8 +385,29 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                 }
                 val (uid, actualEmail) = loginResult.getOrThrow()
 
+                // Check email verification if not logged in with DNI
+                val currentUser = FirebaseAuth.getInstance().currentUser
+                if (currentUser != null && !currentUser.isEmailVerified && !isDni) {
+                    _authLoading.value = false
+                    _userEmail.value = actualEmail
+                    sessionManager.setUserEmail(actualEmail)
+                    _sessionState.value = SessionState.EMAIL_VERIFICATION
+                    _toastEvent.emit("Tu correo no ha sido verificado. Por favor revísalo para ingresar.")
+                    return@launch
+                }
+
                 // 2. Fetch user data and PIN from Firestore
                 val cloudData = repository.syncWithCloud(uid)
+                val isProfileComplete = cloudData != null && !cloudData.dni.isNullOrBlank() && cloudData.account != null && !cloudData.account.accountNumber.isNullOrBlank()
+
+                if (!isProfileComplete) {
+                    _authLoading.value = false
+                    _userEmail.value = actualEmail
+                    sessionManager.setUserEmail(actualEmail)
+                    _sessionState.value = SessionState.ONBOARDING
+                    _toastEvent.emit("Por favor completa los pasos para abrir tu cuenta bancaria.")
+                    return@launch
+                }
 
                 // Retrieve 6-digit PIN securely from Firestore
                 var userPin = FirebaseManager.getUserSecurityPin(uid)?.trim() ?: ""
@@ -380,17 +435,14 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
 
                 _authLoading.value = false
 
-                // 3. Post-Login 6-Digit PIN Requirement (mirroring Google login flow)
+                // 3. Post-Login 6-Digit PIN Requirement
                 val holderName = cloudData?.account?.accountHolder
                     ?: sessionManager.getUserName().ifEmpty { actualEmail.substringBefore("@") }
-
-                _googleAuthState.value = GoogleAuthState.RequirePin(
-                    uid = uid,
-                    email = actualEmail,
-                    displayName = holderName,
-                    expectedPin = userPin,
-                    cloudData = cloudData
-                )
+                sessionManager.setUserName(holderName)
+                _userName.value = holderName
+                sessionManager.setLoggedIn(true)
+                _googleAuthState.value = GoogleAuthState.Idle
+                _sessionState.value = SessionState.LOCKED
 
             } catch (e: Exception) {
                 _authLoading.value = false
@@ -480,14 +532,14 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                     .await()
 
                 val user = authResult.user
-                user?.sendEmailVerification()
+                user?.sendEmailVerification()?.await()
 
                 sessionManager.setUserEmail(email.trim())
                 _userEmail.value = email.trim()
                 _authLoading.value = false
 
-                _sessionState.value = SessionState.ONBOARDING
-                _toastEvent.emit("Cuenta creada con éxito. Completa tu perfil.")
+                _sessionState.value = SessionState.EMAIL_VERIFICATION
+                _toastEvent.emit("Se ha enviado un correo de verificación. Por favor revisa tu bandeja.")
             } catch (e: Exception) {
                 _authLoading.value = false
                 _authError.value = e.localizedMessage ?: "Error al crear cuenta."
@@ -504,6 +556,22 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                 val uid = authResult.user?.uid ?: throw Exception("No se pudo obtener el UID de Google")
 
                 val cloudData = repository.syncWithCloud(uid)
+                val isProfileComplete = cloudData != null && !cloudData.dni.isNullOrBlank() && cloudData.account != null && !cloudData.account.accountNumber.isNullOrBlank()
+
+                if (!isProfileComplete) {
+                    // Google Sign-In is already verified by Google, so skip email verification.
+                    // Directly navigate to opening account steps (Onboarding)
+                    _googleAuthState.value = GoogleAuthState.Idle
+                    _userEmail.value = email
+                    sessionManager.setUserEmail(email)
+                    if (displayName.isNotBlank()) {
+                        sessionManager.setUserName(displayName)
+                    }
+                    _sessionState.value = SessionState.ONBOARDING
+                    _toastEvent.emit("¡Bienvenido! Completa los pasos para abrir tu cuenta bancaria.")
+                    return@launch
+                }
+
                 var userPin = FirebaseManager.getUserSecurityPin(uid)?.trim() ?: ""
                 if (userPin.isBlank() && cloudData?.securityPin?.isNotBlank() == true) {
                     userPin = cloudData.securityPin.trim()
@@ -513,13 +581,17 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                     sessionManager.setUserPin(userPin)
                 }
 
-                _googleAuthState.value = GoogleAuthState.RequirePin(
-                    uid = uid,
-                    email = email,
-                    displayName = displayName,
-                    expectedPin = userPin,
-                    cloudData = cloudData
-                )
+                val holderName = cloudData?.account?.accountHolder
+                    ?: displayName.ifBlank { sessionManager.getUserName().ifEmpty { email.substringBefore("@") } }
+                sessionManager.setUserName(holderName)
+                _userName.value = holderName
+                sessionManager.setUserEmail(email)
+                _userEmail.value = email
+                sessionManager.setLoggedIn(true)
+                sessionManager.setRememberSession(true)
+                _googleAuthState.value = GoogleAuthState.Idle
+                _authLoading.value = false
+                _sessionState.value = SessionState.LOCKED
             } catch (e: Exception) {
                 _googleAuthState.value = GoogleAuthState.Error(e.localizedMessage ?: "Error al autenticar con Google")
             }
@@ -531,15 +603,34 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setGoogleAuthCancelled(reason: String) {
-        _googleAuthState.value = GoogleAuthState.Cancelled(reason)
+        _googleAuthState.value = GoogleAuthState.Idle
+        _authLoading.value = false
+        val cleanMsg = if (reason.isNotBlank()) reason else "Inicio de sesión cancelado"
+        viewModelScope.launch {
+            _toastEvent.emit(cleanMsg)
+        }
     }
 
     fun setGoogleAuthError(errorMsg: String) {
-        _googleAuthState.value = GoogleAuthState.Error(errorMsg)
+        _googleAuthState.value = GoogleAuthState.Idle
+        _authLoading.value = false
+        val cleanMsg = when {
+            errorMsg.contains("16:", ignoreCase = true) || errorMsg.contains("cancelled", ignoreCase = true) || errorMsg.contains("cancel", ignoreCase = true) ->
+                "Inicio de sesión con Google cancelado"
+            errorMsg.contains("network", ignoreCase = true) ->
+                "Error de conexión con los servidores de Google"
+            else -> errorMsg
+        }
+        _authError.value = cleanMsg
+        viewModelScope.launch {
+            _toastEvent.emit(cleanMsg)
+        }
     }
 
     fun dismissGoogleAuthError() {
         _googleAuthState.value = GoogleAuthState.Idle
+        _authLoading.value = false
+        _authError.value = null
     }
 
     fun sendPasswordReset(email: String) {
@@ -561,10 +652,18 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                 user?.reload()?.await()
                 if (user?.isEmailVerified == true) {
                     sessionManager.setEmailVerified(true)
-                    _sessionState.value = SessionState.ONBOARDING
-                    _toastEvent.emit("¡Correo verificado con éxito!")
+                    val uid = user.uid
+                    val cloudData = repository.syncWithCloud(uid)
+                    val isProfileComplete = cloudData != null && !cloudData.dni.isNullOrBlank() && cloudData.account != null && !cloudData.account.accountNumber.isNullOrBlank()
+                    if (isProfileComplete) {
+                        _sessionState.value = SessionState.AUTHENTICATED
+                        _toastEvent.emit("¡Correo verificado! Bienvenido de nuevo a BC-BANK.")
+                    } else {
+                        _sessionState.value = SessionState.ONBOARDING
+                        _toastEvent.emit("¡Correo verificado con éxito! Ahora completa los pasos para abrir tu cuenta.")
+                    }
                 } else {
-                    _toastEvent.emit("El correo aún no ha sido verificado. Revisa tu bandeja.")
+                    _toastEvent.emit("El correo aún no ha sido verificado. Revisa tu bandeja de entrada o spam.")
                 }
             } catch (e: Exception) {
                 _toastEvent.emit("Error al verificar correo: ${e.message}")
@@ -606,13 +705,13 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                 val uid = FirebaseManager.getCurrentUserUid() ?: throw Exception("Usuario no autenticado")
                 val cleanPin = pin.trim()
 
-                // 1. Setup local room data
+                // 1. Setup local room data with zero balance (strictly no default promo balance)
                 repository.setupNewUser(
                     uid = uid,
                     fullName = fullName.trim(),
                     dni = dni.trim(),
                     accountType = accountType,
-                    initialBalance = 1500.00
+                    initialBalance = 0.00
                 )
 
                 // 2. Save in SessionManager
@@ -682,8 +781,10 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                 if (uid != null) {
                     startUserFirestoreSync(uid)
                 }
+                _pinError.value = null
                 _sessionState.value = SessionState.AUTHENTICATED
             } else {
+                _pinError.value = "PIN de seguridad incorrecto"
                 _toastEvent.emit("PIN de seguridad incorrecto")
             }
         }
@@ -697,7 +798,15 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
         _sessionState.value = SessionState.AUTHENTICATED
     }
 
+    private val _pinError = MutableStateFlow<String?>(null)
+    val pinError: StateFlow<String?> = _pinError.asStateFlow()
+
+    fun clearPinError() {
+        _pinError.value = null
+    }
+
     fun lockSession() {
+        _pinError.value = null
         _sessionState.value = SessionState.LOCKED
     }
 
@@ -715,7 +824,8 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun logoutWithPin(pin: String) {
-        if (sessionManager.validatePin(pin)) {
+        val currentPin = sessionManager.getUserPin().trim()
+        if (currentPin.isBlank() || pin.isBlank() || sessionManager.validatePin(pin)) {
             logout()
         } else {
             viewModelScope.launch {
@@ -864,8 +974,14 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
 
     fun createWithdrawalReservation(amount: Double, pin: String, opCode: String) {
         viewModelScope.launch {
-            if (!sessionManager.validatePin(pin)) {
-                showAlert(AppAlert("Seguridad", "PIN incorrecto", AlertType.ERROR))
+            val currentAccount = repository.getAccount()
+            val currentBalance = currentAccount?.balance ?: 0.0
+            if (amount <= 0.0) {
+                showAlert(AppAlert("Monto Inválido", "Ingresa un monto válido para retirar.", AlertType.WARNING))
+                return@launch
+            }
+            if (amount > currentBalance) {
+                showAlert(AppAlert("Saldo Insuficiente", "No cuentas con saldo suficiente para generar este retiro. Saldo disponible: S/ %.2f".format(currentBalance), AlertType.ERROR))
                 return@launch
             }
             val res = repository.reserveWithdrawalFunds(
@@ -878,7 +994,7 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
             )
             res.onSuccess { withdrawal ->
                 _activeWithdrawalReservation.value = withdrawal
-                _toastEvent.emit("Reserva de retiro por S/ $amount generada")
+                _toastEvent.emit("Reserva de retiro por S/ $amount generada exitosamente")
             }.onFailure { e ->
                 showAlert(AppAlert("Error", e.message ?: "Error al reservar retiro", AlertType.ERROR))
             }
@@ -1068,29 +1184,39 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
     // --- Notifications & Profile Actions ---
 
     fun markNotificationAsRead(id: Long) {
-        viewModelScope.launch { repository.markNotificationAsRead(id) }
+        viewModelScope.launch {
+            val uid = FirebaseManager.getCurrentUserUid() ?: sessionManager.getUserEmail()
+            repository.markNotificationAsRead(id, uid)
+        }
     }
 
     fun markAllNotificationsAsRead() {
         viewModelScope.launch {
-            val uid = FirebaseManager.getCurrentUserUid() ?: return@launch
-            repository.markAllNotificationsAsRead(uid)
+            val uid = FirebaseManager.getCurrentUserUid() ?: sessionManager.getUserEmail()
+            if (uid.isNotBlank()) {
+                repository.markAllNotificationsAsRead(uid)
+            }
         }
     }
 
     fun deleteNotification(id: Long) {
-        viewModelScope.launch { repository.deleteNotification(id) }
+        viewModelScope.launch {
+            val uid = FirebaseManager.getCurrentUserUid() ?: sessionManager.getUserEmail()
+            repository.deleteNotification(id, uid)
+        }
     }
 
     fun clearAllNotifications() {
         viewModelScope.launch {
-            val uid = FirebaseManager.getCurrentUserUid() ?: return@launch
-            repository.clearAllNotifications(uid)
+            val uid = FirebaseManager.getCurrentUserUid() ?: sessionManager.getUserEmail()
+            if (uid.isNotBlank()) {
+                repository.clearAllNotifications(uid)
+            }
         }
     }
 
-    fun setBiometricEnabled(enabled: Boolean) {
-        sessionManager.setBiometricEnabled(enabled)
+    suspend fun lookupRecipient(query: String): com.example.data.firebase.RecipientLookupResult? {
+        return FirebaseManager.lookupRecipientByIdentifier(query)
     }
 
     fun setPushNotificationsEnabled(enabled: Boolean) {

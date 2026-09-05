@@ -1125,6 +1125,10 @@ object FirebaseManager {
     // --- SERVICES ARCHITECTURE & CRUD ---
 
     fun getDefaultServices(): List<PublicService> {
+        return emptyList()
+    }
+
+    private fun getLegacyFallbackServices(): List<PublicService> {
         return listOf(
             // 1. Luz y Electricidad
             PublicService(
@@ -1500,11 +1504,44 @@ object FirebaseManager {
         return try {
             val db = FirebaseFirestore.getInstance()
             val snap = db.collection("services").get().await()
-            if (snap.isEmpty) {
-                seedDefaultPublicServicesIfEmpty()
-                getDefaultServices()
-            } else {
-                val cloudServices = snap.documents.mapNotNull { doc ->
+            val cloudServices = snap.documents.mapNotNull { doc ->
+                val name = doc.getStringSafe("name", "").ifBlank { return@mapNotNull null }
+                PublicService(
+                    id = doc.id,
+                    name = name,
+                    category = doc.getStringSafe("category", "Servicios Públicos"),
+                    code = doc.getStringSafe("code", ""),
+                    fee = doc.getDoubleSafe("fee", 0.0),
+                    commission = doc.getDoubleSafe("commission", 0.0),
+                    description = doc.getStringSafe("description", ""),
+                    supplyCodeLabel = doc.getStringSafe("supplyCodeLabel", "Código de Suministro / N° de Recibo"),
+                    supplyCodePlaceholder = doc.getStringSafe("supplyCodePlaceholder", "Ej: 1849204"),
+                    supplyCodeMinLength = doc.getLongSafe("supplyCodeMinLength", 4L).toInt(),
+                    active = doc.getBooleanSafe("active", true),
+                    priority = doc.getLongSafe("priority", 1L).toInt()
+                )
+            }
+            cloudServices.sortedBy { it.priority }
+        } catch (e: Exception) {
+            Log.w(TAG, "getPublicServices from Firestore failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    fun listenToPublicServices(onServicesUpdated: (List<PublicService>) -> Unit): ListenerRegistration? {
+        if (!isFirebaseAvailable) {
+            onServicesUpdated(emptyList())
+            return null
+        }
+
+        return try {
+            val db = FirebaseFirestore.getInstance()
+            db.collection("services").addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    onServicesUpdated(emptyList())
+                    return@addSnapshotListener
+                }
+                val list = snapshot.documents.mapNotNull { doc ->
                     val name = doc.getStringSafe("name", "").ifBlank { return@mapNotNull null }
                     PublicService(
                         id = doc.id,
@@ -1520,96 +1557,19 @@ object FirebaseManager {
                         active = doc.getBooleanSafe("active", true),
                         priority = doc.getLongSafe("priority", 1L).toInt()
                     )
-                }
-                cloudServices.sortedBy { it.priority }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "getPublicServices from Firestore failed: ${e.message}")
-            getDefaultServices()
-        }
-    }
+                }.sortedBy { it.priority }
 
-    fun listenToPublicServices(onServicesUpdated: (List<PublicService>) -> Unit): ListenerRegistration? {
-        if (!isFirebaseAvailable) {
-            onServicesUpdated(getDefaultServices())
-            return null
-        }
-
-        return try {
-            val db = FirebaseFirestore.getInstance()
-            db.collection("services").addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.w(TAG, "listenToPublicServices Firestore error: ${error.message}")
-                    onServicesUpdated(getDefaultServices())
-                    return@addSnapshotListener
-                }
-                if (snapshot == null || snapshot.isEmpty) {
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        seedDefaultPublicServicesIfEmpty()
-                    }
-                    onServicesUpdated(getDefaultServices())
-                } else {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        val name = doc.getStringSafe("name", "").ifBlank { return@mapNotNull null }
-                        PublicService(
-                            id = doc.id,
-                            name = name,
-                            category = doc.getStringSafe("category", "Servicios Públicos"),
-                            code = doc.getStringSafe("code", ""),
-                            fee = doc.getDoubleSafe("fee", 0.0),
-                            commission = doc.getDoubleSafe("commission", 0.0),
-                            description = doc.getStringSafe("description", ""),
-                            supplyCodeLabel = doc.getStringSafe("supplyCodeLabel", "Código de Suministro / N° de Recibo"),
-                            supplyCodePlaceholder = doc.getStringSafe("supplyCodePlaceholder", "Ej: 1849204"),
-                            supplyCodeMinLength = doc.getLongSafe("supplyCodeMinLength", 4L).toInt(),
-                            active = doc.getBooleanSafe("active", true),
-                            priority = doc.getLongSafe("priority", 1L).toInt()
-                        )
-                    }.sortedBy { it.priority }
-
-                    onServicesUpdated(if (list.isNotEmpty()) list else getDefaultServices())
-                }
+                onServicesUpdated(list)
             }
         } catch (e: Exception) {
             Log.w(TAG, "listenToPublicServices setup failed: ${e.message}")
-            onServicesUpdated(getDefaultServices())
+            onServicesUpdated(emptyList())
             null
         }
     }
 
     suspend fun seedDefaultPublicServicesIfEmpty() {
-        if (!isFirebaseAvailable) return
-        try {
-            val db = FirebaseFirestore.getInstance()
-            val snap = db.collection("services").limit(1).get().await()
-            if (snap.isEmpty) {
-                val defaults = getDefaultServices()
-                val batch = db.batch()
-                for (srv in defaults) {
-                    val docRef = db.collection("services").document(srv.id)
-                    val data = hashMapOf<String, Any>(
-                        "id" to srv.id,
-                        "name" to srv.name,
-                        "category" to srv.category,
-                        "code" to srv.code,
-                        "fee" to srv.fee,
-                        "commission" to srv.commission,
-                        "description" to srv.description,
-                        "supplyCodeLabel" to srv.supplyCodeLabel,
-                        "supplyCodePlaceholder" to srv.supplyCodePlaceholder,
-                        "supplyCodeMinLength" to srv.supplyCodeMinLength,
-                        "active" to srv.active,
-                        "priority" to srv.priority,
-                        "seededAt" to System.currentTimeMillis()
-                    )
-                    batch.set(docRef, data, SetOptions.merge())
-                }
-                batch.commit().await()
-                Log.d(TAG, "Default public services seeded to Firestore successfully (${defaults.size} services).")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "seedDefaultPublicServicesIfEmpty error: ${e.message}")
-        }
+        // Services are managed strictly via Firestore and Admin Panel
     }
 
     suspend fun savePublicService(service: PublicService): Result<Unit> {
@@ -1703,107 +1663,21 @@ object FirebaseManager {
 
     // --- SUPPORT CHANNELS (CONFIGURABLE COLLECTION) ---
     suspend fun seedDefaultSupportChannelsIfEmpty() {
-        if (!isFirebaseAvailable) return
-        try {
-            val db = FirebaseFirestore.getInstance()
-            val existing = db.collection("support_channels").limit(1).get().await()
-            if (!existing.isEmpty) {
-                // Support channels already created in Firestore, do not overwrite custom data
-                return
-            }
-
-            val defaultChannels = listOf(
-                hashMapOf(
-                    "id" to "whatsapp_primary",
-                    "type" to "WHATSAPP",
-                    "title" to "WhatsApp Soporte Oficial",
-                    "value" to "+51 915345098",
-                    "description" to "Atención inmediata para suspensiones, bloqueos y consultas 24/7",
-                    "actionUrl" to "https://wa.me/51915345098?text=Hola%20BC-BANK,%20solicito%20asistencia%20con%20mi%20cuenta",
-                    "isAvailable" to true,
-                    "isPrimary" to true,
-                    "priority" to 1,
-                    "updatedAt" to System.currentTimeMillis()
-                ),
-                hashMapOf(
-                    "id" to "whatsapp_secondary",
-                    "type" to "WHATSAPP",
-                    "title" to "WhatsApp Central Alternativa",
-                    "value" to "+51 123456789",
-                    "description" to "Canal alternativo de asistencia y soporte",
-                    "actionUrl" to "https://wa.me/51123456789?text=Hola%20BC-BANK,%20solicito%20soporte",
-                    "isAvailable" to true,
-                    "isPrimary" to false,
-                    "priority" to 2,
-                    "updatedAt" to System.currentTimeMillis()
-                ),
-                hashMapOf(
-                    "id" to "telegram_support",
-                    "type" to "TELEGRAM",
-                    "title" to "Telegram Oficial BC-BANK",
-                    "value" to "@BCBankSoporte_bot",
-                    "description" to "Bot de seguridad y asistencia directa en Telegram",
-                    "actionUrl" to "https://t.me/BCBankOficial",
-                    "isAvailable" to true,
-                    "isPrimary" to false,
-                    "priority" to 3,
-                    "updatedAt" to System.currentTimeMillis()
-                ),
-                hashMapOf(
-                    "id" to "email_support",
-                    "type" to "EMAIL",
-                    "title" to "Correo de Atención al Cliente",
-                    "value" to "soporte@bcbank.pe",
-                    "description" to "Consultas formales, levantamiento de restricciones y reclamos",
-                    "actionUrl" to "mailto:soporte@bcbank.pe?subject=Atención%20al%20Cliente%20BC-BANK",
-                    "isAvailable" to true,
-                    "isPrimary" to false,
-                    "priority" to 4,
-                    "updatedAt" to System.currentTimeMillis()
-                ),
-                hashMapOf(
-                    "id" to "phone_support",
-                    "type" to "PHONE",
-                    "title" to "Central Telefónica Directa",
-                    "value" to "+51 915345098",
-                    "description" to "Línea telefónica directa de atención al usuario",
-                    "actionUrl" to "tel:+51915345098",
-                    "isAvailable" to true,
-                    "isPrimary" to false,
-                    "priority" to 5,
-                    "updatedAt" to System.currentTimeMillis()
-                )
-            )
-
-            for (ch in defaultChannels) {
-                val docId = ch["id"] as String
-                db.collection("support_channels").document(docId).set(ch, SetOptions.merge()).await()
-            }
-            Log.d(TAG, "Default support channels initialized in Firestore")
-        } catch (e: Exception) {
-            Log.w(TAG, "seedDefaultSupportChannels notice: ${e.message}")
-        }
+        // Support channels are managed strictly via Firestore and Admin Panel
     }
 
     fun listenToSupportChannels(
         onChannelsChanged: (List<SupportChannel>) -> Unit
     ): ListenerRegistration? {
         if (!isFirebaseAvailable) {
-            onChannelsChanged(getDefaultLocalSupportChannels())
+            onChannelsChanged(emptyList())
             return null
         }
         return try {
             val db = FirebaseFirestore.getInstance()
             db.collection("support_channels").addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) {
-                    onChannelsChanged(getDefaultLocalSupportChannels())
-                    return@addSnapshotListener
-                }
-                if (snapshot.isEmpty) {
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        seedDefaultSupportChannelsIfEmpty()
-                    }
-                    onChannelsChanged(getDefaultLocalSupportChannels())
+                    onChannelsChanged(emptyList())
                     return@addSnapshotListener
                 }
                 val channels = snapshot.documents.mapNotNull { doc ->
@@ -1833,77 +1707,17 @@ object FirebaseManager {
                 .filter { it.isAvailable }
                 .sortedWith(compareByDescending<SupportChannel> { it.isPrimary }.thenBy { it.priority })
 
-                if (channels.isEmpty()) {
-                    onChannelsChanged(getDefaultLocalSupportChannels())
-                } else {
-                    onChannelsChanged(channels)
-                }
+                onChannelsChanged(channels)
             }
         } catch (e: Exception) {
             Log.e(TAG, "listenToSupportChannels error: ${e.message}")
-            onChannelsChanged(getDefaultLocalSupportChannels())
+            onChannelsChanged(emptyList())
             null
         }
     }
 
     fun getDefaultLocalSupportChannels(): List<SupportChannel> {
-        return listOf(
-            SupportChannel(
-                id = "whatsapp_primary",
-                type = "WHATSAPP",
-                title = "WhatsApp Soporte Oficial",
-                value = "+51 915345098",
-                description = "Atención inmediata para suspensiones, bloqueos y consultas 24/7",
-                actionUrl = "https://wa.me/51915345098?text=Hola%20BC-BANK,%20solicito%20asistencia%20con%20mi%20cuenta",
-                isAvailable = true,
-                isPrimary = true,
-                priority = 1
-            ),
-            SupportChannel(
-                id = "whatsapp_secondary",
-                type = "WHATSAPP",
-                title = "WhatsApp Central Alternativa",
-                value = "+51 123456789",
-                description = "Canal alternativo de asistencia y soporte",
-                actionUrl = "https://wa.me/51123456789?text=Hola%20BC-BANK,%20solicito%20soporte",
-                isAvailable = true,
-                isPrimary = false,
-                priority = 2
-            ),
-            SupportChannel(
-                id = "telegram_support",
-                type = "TELEGRAM",
-                title = "Telegram Oficial BC-BANK",
-                value = "@BCBankSoporte_bot",
-                description = "Bot de seguridad y asistencia directa en Telegram",
-                actionUrl = "https://t.me/BCBankOficial",
-                isAvailable = true,
-                isPrimary = false,
-                priority = 3
-            ),
-            SupportChannel(
-                id = "email_support",
-                type = "EMAIL",
-                title = "Correo de Atención al Cliente",
-                value = "soporte@bcbank.pe",
-                description = "Consultas formales, levantamiento de restricciones y reclamos",
-                actionUrl = "mailto:soporte@bcbank.pe?subject=Atención%20al%20Cliente%20BC-BANK",
-                isAvailable = true,
-                isPrimary = false,
-                priority = 4
-            ),
-            SupportChannel(
-                id = "phone_support",
-                type = "PHONE",
-                title = "Central Telefónica Directa",
-                value = "+51 915345098",
-                description = "Línea telefónica directa de atención al usuario",
-                actionUrl = "tel:+51915345098",
-                isAvailable = true,
-                isPrimary = false,
-                priority = 5
-            )
-        )
+        return emptyList()
     }
 
     suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
@@ -2090,13 +1904,150 @@ object FirebaseManager {
                 "timestamp" to notification.timestamp,
                 "isRead" to notification.isRead,
                 "amountTag" to (notification.amountTag ?: ""),
-                "type" to notification.type
+                "type" to notification.type,
+                "status" to if (notification.isRead) "SEEN" else "UNSEEN",
+                "deleted" to false
             )
             val docId = if (notification.id > 0) "${notification.id}" else "${System.currentTimeMillis()}"
             db.collection("users").document(uid).collection("notifications").document(docId)
                 .set(notifData, SetOptions.merge()).await()
         } catch (e: Exception) {
             Log.w(TAG, "Firestore notification sync notice: ${e.message}")
+        }
+    }
+
+    suspend fun updateNotificationStatusInFirestore(uid: String, notificationId: Long, status: String) {
+        if (!isFirebaseAvailable || uid.isBlank()) return
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val notifsCol = db.collection("users").document(uid).collection("notifications")
+            val isRead = status.equals("SEEN", ignoreCase = true)
+            val isDeleted = status.equals("DELETED", ignoreCase = true)
+            val updateMap = hashMapOf<String, Any>(
+                "status" to status,
+                "isRead" to isRead,
+                "deleted" to isDeleted
+            )
+            val docRef = notifsCol.document("$notificationId")
+            val snapshot = docRef.get().await()
+            if (snapshot.exists()) {
+                docRef.update(updateMap).await()
+            } else {
+                val query = notifsCol.whereEqualTo("id", notificationId).limit(1).get().await()
+                if (!query.isEmpty) {
+                    query.documents.first().reference.update(updateMap).await()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "updateNotificationStatusInFirestore notice: ${e.message}")
+        }
+    }
+
+    suspend fun markAllNotificationsAsSeenInFirestore(uid: String) {
+        if (!isFirebaseAvailable || uid.isBlank()) return
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val snapshot = db.collection("users").document(uid).collection("notifications").get().await()
+            val batch = db.batch()
+            for (doc in snapshot.documents) {
+                batch.update(doc.reference, mapOf(
+                    "status" to "SEEN",
+                    "isRead" to true
+                ))
+            }
+            batch.commit().await()
+        } catch (e: Exception) {
+            Log.w(TAG, "markAllNotificationsAsSeenInFirestore notice: ${e.message}")
+        }
+    }
+
+    suspend fun clearAllNotificationsInFirestore(uid: String) {
+        if (!isFirebaseAvailable || uid.isBlank()) return
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val snapshot = db.collection("users").document(uid).collection("notifications").get().await()
+            val batch = db.batch()
+            for (doc in snapshot.documents) {
+                batch.update(doc.reference, mapOf(
+                    "status" to "DELETED",
+                    "deleted" to true
+                ))
+            }
+            batch.commit().await()
+        } catch (e: Exception) {
+            Log.w(TAG, "clearAllNotificationsInFirestore notice: ${e.message}")
+        }
+    }
+
+    suspend fun lookupRecipientByIdentifier(query: String): RecipientLookupResult? {
+        val clean = query.trim()
+        if (clean.isBlank()) return null
+        if (!isFirebaseAvailable) return null
+
+        return try {
+            val db = FirebaseFirestore.getInstance()
+            val digitsOnly = clean.filter { it.isDigit() }
+
+            // 1. Search in users collection by DNI (8 digits)
+            if (digitsOnly.length == 8) {
+                val userByDni = db.collection("users").whereEqualTo("dni", digitsOnly).limit(1).get().await()
+                if (!userByDni.isEmpty) {
+                    val doc = userByDni.documents.first()
+                    val name = doc.getStringSafe("fullName", doc.getStringSafe("accountHolder", "Usuario BC-BANK"))
+                    val bank = doc.getStringSafe("bankName", "BC-BANK Perú")
+                    return RecipientLookupResult(fullName = name, identifier = clean, bankName = bank, found = true)
+                }
+            }
+
+            // 2. Search in users collection by accountNumber
+            val userByAcc = db.collection("users").whereEqualTo("accountNumber", clean).limit(1).get().await()
+            if (!userByAcc.isEmpty) {
+                val doc = userByAcc.documents.first()
+                val name = doc.getStringSafe("fullName", doc.getStringSafe("accountHolder", "Usuario BC-BANK"))
+                val bank = doc.getStringSafe("bankName", "BC-BANK Perú")
+                return RecipientLookupResult(fullName = name, identifier = clean, bankName = bank, found = true)
+            }
+
+            // 3. Search in users collection by cciNumber
+            val userByCci = db.collection("users").whereEqualTo("cciNumber", clean).limit(1).get().await()
+            if (!userByCci.isEmpty) {
+                val doc = userByCci.documents.first()
+                val name = doc.getStringSafe("fullName", doc.getStringSafe("accountHolder", "Usuario BC-BANK"))
+                val bank = doc.getStringSafe("bankName", "BC-BANK Perú")
+                return RecipientLookupResult(fullName = name, identifier = clean, bankName = bank, found = true)
+            }
+
+            // 4. Search in cip_codes collection by DNI, accountNumber or cciNumber
+            if (digitsOnly.length == 8) {
+                val cipQuery = db.collection("cip_codes").whereEqualTo("userDni", digitsOnly).limit(1).get().await()
+                if (!cipQuery.isEmpty) {
+                    val doc = cipQuery.documents.first()
+                    val name = doc.getStringSafe("fullName", doc.getStringSafe("accountHolder", "Usuario BC-BANK"))
+                    val bank = doc.getStringSafe("bankName", "BC-BANK Perú")
+                    return RecipientLookupResult(fullName = name, identifier = clean, bankName = bank, found = true)
+                }
+            }
+
+            val cipAccQuery = db.collection("cip_codes").whereEqualTo("accountNumber", clean).limit(1).get().await()
+            if (!cipAccQuery.isEmpty) {
+                val doc = cipAccQuery.documents.first()
+                val name = doc.getStringSafe("fullName", doc.getStringSafe("accountHolder", "Usuario BC-BANK"))
+                val bank = doc.getStringSafe("bankName", "BC-BANK Perú")
+                return RecipientLookupResult(fullName = name, identifier = clean, bankName = bank, found = true)
+            }
+
+            val cipCciQuery = db.collection("cip_codes").whereEqualTo("cciNumber", clean).limit(1).get().await()
+            if (!cipCciQuery.isEmpty) {
+                val doc = cipCciQuery.documents.first()
+                val name = doc.getStringSafe("fullName", doc.getStringSafe("accountHolder", "Usuario BC-BANK"))
+                val bank = doc.getStringSafe("bankName", "BC-BANK Perú")
+                return RecipientLookupResult(fullName = name, identifier = clean, bankName = bank, found = true)
+            }
+
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "lookupRecipientByIdentifier notice: ${e.message}")
+            null
         }
     }
 
@@ -2277,15 +2228,21 @@ object FirebaseManager {
                 listeners.add(txListener)
             }
 
-            // 6. Notifications listener
+            // 6. Notifications listener (with UNSEEN, SEEN, DELETED state sync)
             if (onNotificationsChanged != null) {
                 val notifListener = db.collection("users").document(uid).collection("notifications")
                     .addSnapshotListener { snapshot, err ->
                         if (err != null || snapshot == null) return@addSnapshotListener
                         val notifs = snapshot.documents.mapNotNull { doc ->
                             val title = doc.getStringSafe("title", "").ifBlank { return@mapNotNull null }
+                            val status = doc.getStringSafe("status", "UNSEEN")
+                            val isDeleted = doc.getBooleanSafe("deleted", false) || status.equals("DELETED", ignoreCase = true)
+                            if (isDeleted) return@mapNotNull null
+
                             val rawId = doc.getLongSafe("id", -1L)
                             val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
+                            val isRead = doc.getBooleanSafe("isRead", false) || status.equals("SEEN", ignoreCase = true)
+
                             BankNotificationEntity(
                                 id = finalId,
                                 uid = uid,
@@ -2293,7 +2250,7 @@ object FirebaseManager {
                                 message = doc.getStringSafe("message", ""),
                                 category = doc.getStringSafe("category", "Seguridad"),
                                 timestamp = doc.getLongSafe("timestamp", System.currentTimeMillis()),
-                                isRead = doc.getBooleanSafe("isRead", false),
+                                isRead = isRead,
                                 amountTag = doc.getStringSafe("amountTag", "").ifBlank { null },
                                 type = doc.getStringSafe("type", "GENERAL")
                             )
@@ -2302,6 +2259,42 @@ object FirebaseManager {
                     }
                 listeners.add(notifListener)
             }
+
+            // 7. Categories listener (Loads strictly user-created categories from Firestore)
+            val catListener = db.collection("users").document(uid).collection("categories")
+                .addSnapshotListener { snapshot, err ->
+                    if (err != null || snapshot == null) return@addSnapshotListener
+                    val expList = mutableListOf<com.example.ui.util.CategoryItem>()
+                    val incList = mutableListOf<com.example.ui.util.CategoryItem>()
+                    val goalList = mutableListOf<com.example.ui.util.CategoryItem>()
+                    val budList = mutableListOf<com.example.ui.util.CategoryItem>()
+
+                    snapshot.documents.forEach { doc ->
+                        val name = doc.getStringSafe("name", "").trim()
+                        if (name.isNotBlank()) {
+                            val type = doc.getStringSafe("type", "EXPENSE").uppercase()
+                            val iconKey = doc.getStringSafe("iconKey", "DEFAULT")
+                            val item = com.example.ui.util.CategoryItem(
+                                id = doc.id,
+                                name = name,
+                                isCustom = true,
+                                icon = iconKey
+                            )
+                            when (type) {
+                                "EXPENSE" -> expList.add(item)
+                                "INCOME" -> incList.add(item)
+                                "GOAL" -> goalList.add(item)
+                                "BUDGET" -> budList.add(item)
+                            }
+                        }
+                    }
+
+                    com.example.ui.util.CustomCategoryManager.setCategoriesFromCloud(expList, com.example.ui.util.CategoryType.EXPENSE)
+                    com.example.ui.util.CustomCategoryManager.setCategoriesFromCloud(incList, com.example.ui.util.CategoryType.INCOME)
+                    com.example.ui.util.CustomCategoryManager.setCategoriesFromCloud(goalList, com.example.ui.util.CategoryType.GOAL)
+                    com.example.ui.util.CustomCategoryManager.setCategoriesFromCloud(budList, com.example.ui.util.CategoryType.BUDGET)
+                }
+            listeners.add(catListener)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to attach real-time listeners: ${e.message}")
         }
@@ -3017,4 +3010,12 @@ data class SupportChannel(
     val priority: Int = 1,
     val updatedAt: Long = System.currentTimeMillis()
 )
+
+data class RecipientLookupResult(
+    val fullName: String,
+    val identifier: String,
+    val bankName: String = "BC-BANK Perú",
+    val found: Boolean
+)
+
 

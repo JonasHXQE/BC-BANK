@@ -25,14 +25,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -42,6 +44,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,9 +62,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.firebase.FirebaseManager
 import com.example.data.local.AccountInfoEntity
 import com.example.ui.components.Formatters
 import com.example.ui.util.CustomCategoryManager
+import kotlinx.coroutines.delay
 import com.example.ui.theme.AccentGold
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.BorderDark
@@ -112,8 +117,45 @@ fun TransferScreen(
         }
     }
 
+    var destinationIdentifier by remember(initialIdentifier) { mutableStateOf(initialIdentifier) }
     var recipientName by remember(initialRecipient) { mutableStateOf(initialRecipient) }
-    var accountOrPhone by remember(initialIdentifier) { mutableStateOf(initialIdentifier) }
+    var recipientBank by remember { mutableStateOf("") }
+    var isSearchingRecipient by remember { mutableStateOf(false) }
+    var recipientFound by remember { mutableStateOf(initialRecipient.isNotBlank()) }
+    var recipientNotFound by remember { mutableStateOf(false) }
+
+    LaunchedEffect(destinationIdentifier) {
+        val clean = destinationIdentifier.trim()
+        val digits = clean.filter { it.isDigit() }
+        if (digits.length < 8) {
+            if (initialRecipient.isBlank()) {
+                recipientName = ""
+            }
+            recipientBank = ""
+            isSearchingRecipient = false
+            recipientNotFound = false
+            recipientFound = recipientName.isNotBlank()
+            return@LaunchedEffect
+        }
+
+        isSearchingRecipient = true
+        recipientNotFound = false
+        delay(350)
+        val result = FirebaseManager.lookupRecipientByIdentifier(clean)
+        isSearchingRecipient = false
+        if (result != null && result.found) {
+            recipientName = result.fullName
+            recipientBank = result.bankName
+            recipientFound = true
+            recipientNotFound = false
+        } else {
+            recipientName = ""
+            recipientBank = ""
+            recipientFound = false
+            recipientNotFound = true
+        }
+    }
+
     var amountText by remember(initialAmount) {
         mutableStateOf(if (initialAmount != null && initialAmount > 0) "%.2f".format(initialAmount) else "")
     }
@@ -187,7 +229,7 @@ fun TransferScreen(
                         color = TextPrimary
                     )
                     Text(
-                        text = "Envía Soles a cuentas bancarias, CCI o billeteras",
+                        text = "Envía Soles a cuentas bancarias, CCI o DNI",
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
@@ -289,8 +331,10 @@ fun TransferScreen(
                                     .background(Color(0xFF12131C))
                                     .border(1.dp, BorderGlass, RoundedCornerShape(14.dp))
                                     .clickable {
+                                        destinationIdentifier = contact.identifier
                                         recipientName = contact.name
-                                        accountOrPhone = contact.identifier
+                                        recipientFound = true
+                                        recipientNotFound = false
                                     }
                                     .padding(12.dp)
                                     .width(90.dp)
@@ -348,31 +392,14 @@ fun TransferScreen(
                     )
 
                     OutlinedTextField(
-                        value = recipientName,
-                        onValueChange = { recipientName = it },
-                        label = { Text("Nombre del destinatario") },
-                        placeholder = { Text("Ej. María García, BC-BANK Servicios") },
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = PrimaryVioletLight) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = PrimaryViolet,
-                            unfocusedBorderColor = BorderGlass,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            focusedContainerColor = Color(0xFF151620),
-                            unfocusedContainerColor = Color(0xFF12131A)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("transfer_recipient_input")
-                    )
-
-                    OutlinedTextField(
-                        value = accountOrPhone,
-                        onValueChange = { accountOrPhone = it },
-                        label = { Text("N° de cuenta / CCI o celular") },
-                        placeholder = { Text("Ej. 987654321 o 002-194-...") },
+                        value = destinationIdentifier,
+                        onValueChange = { input ->
+                            destinationIdentifier = input.filter { it.isDigit() || it == '-' || it == ' ' }
+                        },
+                        label = { Text("N° de DNI (8 dígitos), Cuenta o CCI (20 dígitos)") },
+                        placeholder = { Text("Ej. 72345678 o 002-194-000000000000-11") },
                         leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, tint = PrimaryVioletLight) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = PrimaryViolet,
@@ -385,6 +412,96 @@ fun TransferScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("transfer_account_input")
+                    )
+
+                    // Real-time resolution status indicator
+                    if (isSearchingRecipient) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = PrimaryVioletLight,
+                                strokeWidth = 2.dp
+                            )
+                            Text(
+                                text = "Buscando titular en el sistema...",
+                                fontSize = 12.sp,
+                                color = PrimaryVioletLight
+                            )
+                        }
+                    } else if (recipientFound && recipientName.isNotBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = "Verificado",
+                                tint = IncomeGreen,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Titular verificado: $recipientName • $recipientBank",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = IncomeGreen
+                            )
+                        }
+                    } else if (recipientNotFound) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ErrorOutline,
+                                contentDescription = "No encontrado",
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "No se encontró ningún titular asociado a este DNI, Cuenta o CCI",
+                                fontSize = 12.sp,
+                                color = Color(0xFFEF4444)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Ingresa el DNI (8 dígitos), Cuenta o CCI para validar al titular automáticamente",
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = recipientName,
+                        onValueChange = { /* Read-only, no manual typing allowed */ },
+                        readOnly = true,
+                        label = { Text("Nombre del destinatario (Autocargado)") },
+                        placeholder = { Text("Se cargará en tiempo real al ingresar DNI/Cuenta/CCI") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = PrimaryVioletLight) },
+                        trailingIcon = {
+                            if (recipientFound && recipientName.isNotBlank()) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = "Titular Validado", tint = IncomeGreen)
+                            }
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = if (recipientFound) IncomeGreen else PrimaryViolet,
+                            unfocusedBorderColor = if (recipientFound) IncomeGreen.copy(alpha = 0.5f) else BorderGlass,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedContainerColor = Color(0xFF151620),
+                            unfocusedContainerColor = Color(0xFF12131A)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("transfer_recipient_input")
                     )
 
                     // Quick amount shortcuts
@@ -498,13 +615,31 @@ fun TransferScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    val amount = amountText.toDoubleOrNull() ?: 0.0
+                    val currentBalance = account?.balance ?: 0.0
+                    val hasSufficientBalance = amount <= currentBalance
+                    val isAmountValid = amount > 0 && hasSufficientBalance
+                    val canTransfer = isAmountValid && recipientFound && recipientName.isNotBlank() && !isSearchingRecipient
+
+                    if (amount > currentBalance) {
+                        Text(
+                            text = "Saldo insuficiente en tu cuenta (Saldo disponible: ${Formatters.formatSoles(currentBalance)})",
+                            fontSize = 12.sp,
+                            color = Color(0xFFEF4444),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+
                     Button(
                         onClick = {
-                            val amount = amountText.toDoubleOrNull() ?: 0.0
                             val finalCategory = selectedCategory.ifBlank { "No especificado" }
-                            onPerformTransfer(recipientName, accountOrPhone, amount, concept, finalCategory)
+                            onPerformTransfer(recipientName, destinationIdentifier.trim(), amount, concept, finalCategory)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryViolet),
+                        enabled = canTransfer,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PrimaryViolet,
+                            disabledContainerColor = PrimaryViolet.copy(alpha = 0.3f)
+                        ),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -518,8 +653,14 @@ fun TransferScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
+                        val buttonLabel = when {
+                            !recipientFound -> "Ingresa titular válido"
+                            !hasSufficientBalance -> "Saldo insuficiente"
+                            amount <= 0.0 -> "Ingresa un monto"
+                            else -> "Transferir ahora"
+                        }
                         Text(
-                            text = "Transferir ahora",
+                            text = buttonLabel,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                             fontSize = 15.sp

@@ -51,6 +51,10 @@ import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -65,11 +69,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -102,7 +109,6 @@ import com.example.data.firebase.SupportChannel
 import com.example.data.local.AccountInfoEntity
 import com.example.ui.components.Formatters
 import com.example.ui.components.SupportChannelCard
-import com.example.ui.components.VoucherVerifierModal
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.AccentGold
 import com.example.ui.theme.BackgroundDark
@@ -139,6 +145,8 @@ fun ProfileScreen(
     supportChannels: List<SupportChannel> = emptyList(),
     isBiometricEnabled: Boolean = true,
     isPushNotificationsEnabled: Boolean = false,
+    currentThemeMode: String = "SYSTEM",
+    onSelectThemeMode: (String) -> Unit = {},
     onToggleBiometric: (Boolean) -> Unit = {},
     onTogglePushNotifications: (Boolean) -> Unit = {},
     onUpdatePin: (String) -> Unit = {},
@@ -154,6 +162,13 @@ fun ProfileScreen(
     val isDeviceSecurityConfigured = remember {
         BiometricAuthManager.isDeviceSecurityConfigured(context)
     }
+
+    LaunchedEffect(isDeviceSecurityConfigured) {
+        if (!isDeviceSecurityConfigured && isBiometricEnabled) {
+            onToggleBiometric(false)
+        }
+    }
+
     var showNoDeviceSecurityDialog by remember { mutableStateOf(false) }
     var biometricEnabled by remember(isBiometricEnabled, isDeviceSecurityConfigured) {
         mutableStateOf(isBiometricEnabled && isDeviceSecurityConfigured)
@@ -190,7 +205,6 @@ fun ProfileScreen(
 
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var showCategoryManagerDialog by remember { mutableStateOf(false) }
-    var showVoucherVerifierModal by remember { mutableStateOf(false) }
 
     val holderName = account?.accountHolder?.ifBlank { "Usuario BC-BANK" } ?: "Usuario BC-BANK"
     val displayAccountType = if (userAccountType.isNotBlank()) userAccountType else (account?.bankName?.ifBlank { "Cuenta de Ahorros BC-BANK" } ?: "Cuenta de Ahorros BC-BANK")
@@ -782,81 +796,6 @@ fun ProfileScreen(
             }
         }
 
-        // 5.1 Voucher Verification Card
-        item {
-            Text(
-                text = "Auditoría de Comprobantes",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-        }
-
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(20.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f).padding(end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(EmeraldDark)
-                                    .border(1.dp, EmeraldLight.copy(alpha = 0.5f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Shield,
-                                    contentDescription = null,
-                                    tint = EmeraldLight,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "Verificador de Comprobantes",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = "Audita y valida la autenticidad e inmutabilidad de cualquier comprobante o voucher bancario",
-                                    fontSize = 11.sp,
-                                    color = TextSecondary,
-                                    lineHeight = 15.sp
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = { showVoucherVerifierModal = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldDark),
-                            shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldLight.copy(alpha = 0.5f)),
-                            modifier = Modifier.testTag("btn_open_voucher_verifier")
-                        ) {
-                            Text("Verificar", color = EmeraldLight, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
 
         // 6. Security & Preferences
         item {
@@ -1155,7 +1094,131 @@ fun ProfileScreen(
             }
         }
 
-        // 7. Canales de Atención y Soporte Oficial
+        // 7. Gestor de Apariencia y Modo Visual (AMOLED / Sistema / Claro)
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Palette,
+                    contentDescription = null,
+                    tint = EmeraldLight,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Apariencia y Modo Visual",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Elige el estilo visual de la aplicación. Por defecto se adapta automáticamente al tema de tu dispositivo Android.",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        lineHeight = 16.sp
+                    )
+
+                    val themeOptions = listOf(
+                        Triple("SYSTEM", "Predeterminado del sistema", "Sigue automáticamente el tema de tu dispositivo móvil"),
+                        Triple("DARK", "Oscuro AMOLED Ultra Nítido", "Negro profundo #000000 de alto contraste y máximo ahorro de batería"),
+                        Triple("LIGHT", "Claro Moderno", "Modo diurno fresco, limpio y de alta legibilidad")
+                    )
+
+                    themeOptions.forEach { (modeKey, title, desc) ->
+                        val isSelected = currentThemeMode == modeKey
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSelected) EmeraldPrimary.copy(alpha = 0.12f) else SurfaceCard)
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) EmeraldPrimary else BorderDark,
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                                .clickable {
+                                    onSelectThemeMode(modeKey)
+                                    onShowCopiedAlert("Modo aplicado: $title")
+                                }
+                                .padding(14.dp)
+                                .testTag("theme_option_$modeKey"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isSelected) EmeraldPrimary else SurfaceElevated
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = when (modeKey) {
+                                            "DARK" -> Icons.Default.DarkMode
+                                            "LIGHT" -> Icons.Default.LightMode
+                                            else -> Icons.Default.BrightnessAuto
+                                        },
+                                        contentDescription = null,
+                                        tint = if (isSelected) Color.White else TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = title,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) TextPrimary else TextSecondary
+                                    )
+                                    Text(
+                                        text = desc,
+                                        fontSize = 11.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    onSelectThemeMode(modeKey)
+                                    onShowCopiedAlert("Modo aplicado: $title")
+                                },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = EmeraldPrimary,
+                                    unselectedColor = TextMuted
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 8. Canales de Atención y Soporte Oficial
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1636,12 +1699,6 @@ fun ProfileScreen(
         )
     }
 
-    // Voucher Verifier Modal
-    if (showVoucherVerifierModal) {
-        VoucherVerifierModal(
-            onDismiss = { showVoucherVerifierModal = false }
-        )
-    }
 }
 }
 

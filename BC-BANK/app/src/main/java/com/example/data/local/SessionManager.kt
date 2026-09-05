@@ -146,13 +146,29 @@ class SessionManager(private val context: Context) {
     }
     
     fun setBiometricEnabled(enabled: Boolean) {
+        if (enabled && !com.example.ui.util.BiometricAuthManager.isDeviceSecurityConfigured(context)) {
+            prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, false).apply()
+            return
+        }
         prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, enabled).apply()
     }
     
     fun isBiometricEnabled(): Boolean {
         val userWants = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
         if (!userWants) return false
-        return com.example.ui.util.BiometricAuthManager.isDeviceSecurityConfigured(context)
+        val isConfigured = com.example.ui.util.BiometricAuthManager.isDeviceSecurityConfigured(context)
+        if (!isConfigured) {
+            // Automatically deactivate if device no longer has a security lock method configured
+            prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, false).apply()
+            return false
+        }
+        return true
+    }
+
+    fun getThemeMode(): String = prefs.getString("key_app_theme_mode", "SYSTEM") ?: "SYSTEM"
+
+    fun setThemeMode(mode: String) {
+        prefs.edit().putString("key_app_theme_mode", mode).apply()
     }
 
     fun clearSession() {

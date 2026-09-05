@@ -1,6 +1,6 @@
 {
   "name": "BC-BANK",
-  "description": "Aplicación de banca móvil BC-BANK con transferencias, depósitos, pago de servicios, retiro QR y metas de ahorro",
+  "description": "Banca digital moderna con transferencias, retiros con clave, metas de ahorro y auditoría segura.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

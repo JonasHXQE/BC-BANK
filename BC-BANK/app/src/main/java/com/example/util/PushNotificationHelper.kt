@@ -6,33 +6,42 @@ import android.content.Context
 import android.os.Build
 
 object PushNotificationHelper {
-    const val CHANNEL_TRANSACTIONS = "bcbank_transactions_channel"
-    const val CHANNEL_SECURITY = "bcbank_security_channel"
+    const val CHANNEL_ID_SECURITY = "security_alerts"
+    const val CHANNEL_ID_TRANSACTIONS = "transactions"
+    const val CHANNEL_ID_SYSTEM = "system_announcements"
 
     fun initializeChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            val txChannel = NotificationChannel(
-                CHANNEL_TRANSACTIONS,
-                "Transacciones y Movimientos",
+            val securityChannel = NotificationChannel(
+                CHANNEL_ID_SECURITY,
+                "Alertas de Seguridad",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notificaciones de transferencias, depósitos y retiros en BC-BANK"
-                enableVibration(true)
+                description = "Notificaciones críticas de seguridad de la cuenta"
             }
 
-            val secChannel = NotificationChannel(
-                CHANNEL_SECURITY,
-                "Seguridad y Accesos",
-                NotificationManager.IMPORTANCE_HIGH
+            val transactionChannel = NotificationChannel(
+                CHANNEL_ID_TRANSACTIONS,
+                "Transacciones",
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Alertas de seguridad, verificación y accesos de cuenta"
-                enableVibration(true)
+                description = "Confirmación de transferencias y depósitos"
             }
 
-            notificationManager.createNotificationChannels(listOf(txChannel, secChannel))
+            val systemChannel = NotificationChannel(
+                CHANNEL_ID_SYSTEM,
+                "Avisos del Sistema",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Notificaciones informativas del banco"
+            }
+
+            notificationManager.createNotificationChannels(
+                listOf(securityChannel, transactionChannel, systemChannel)
+            )
         }
     }
 }

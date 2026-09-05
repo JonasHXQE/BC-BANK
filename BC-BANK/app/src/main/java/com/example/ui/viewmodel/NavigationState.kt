@@ -2,6 +2,15 @@ package com.example.ui.viewmodel
 
 import com.example.data.local.TransactionEntity
 
+enum class SessionState {
+    SPLASH,
+    AUTH,
+    EMAIL_VERIFICATION,
+    ONBOARDING,
+    LOCKED,
+    AUTHENTICATED
+}
+
 enum class NavigationTab {
     DASHBOARD,
     METAS,
@@ -24,15 +33,6 @@ sealed interface ActiveWindow {
     data class TransactionDetail(val transaction: TransactionEntity) : ActiveWindow
 }
 
-enum class SessionState {
-    SPLASH,
-    AUTH,
-    EMAIL_VERIFICATION,
-    ONBOARDING,
-    LOCKED,
-    AUTHENTICATED
-}
-
 data class TransferReceipt(
     val recipient: String,
     val accountOrPhone: String,
@@ -42,4 +42,3 @@ data class TransferReceipt(
     val operationCode: String,
     val timestamp: Long = System.currentTimeMillis()
 )
-

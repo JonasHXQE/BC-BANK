@@ -1,0 +1,215 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // COLECCIÓN FANTASMA DE ADMINISTRACIÓN (PANEL ADMIN)
+    // =========================================================================
+    // Esta colección está TERMINANTEMENTE PROHIBIDA para clientes SDK de Firebase.
+    // Ningún usuario de la app móvil (anónimo o autenticado) puede listar, leer,
+    // crear, modificar o eliminar administradores.
+    // Solo el Firebase Admin SDK (Node.js/Backend con Service Account) tiene acceso.
+    match /panel_admin_users/{adminId} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // FUNCIONES AUXILIARES DE SEGURIDAD
+    // =========================================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidTimestamp(field) {
+      return field is int || field is timestamp;
+    }
+
+    // Reglas de seguridad bancaria para balance financiero
+    // 1. En creación: el balance inicial debe ser estrictamente 0.00 (sin saldo promocional ni fraudulento)
+    function isValidInitialBalance(data) {
+      return !('balance' in data) || data.balance == 0 || data.balance == 0.0;
+    }
+
+    // 2. En actualización desde cliente: el cliente SDK NUNCA puede aumentar su saldo a sí mismo.
+    // Solo puede disminuirlo (operaciones seguras como transferir, pagar servicios, retiros) o mantenerlo igual.
+    // La acreditación y recarga de saldo está reservada de forma exclusiva al Firebase Admin SDK desde el Panel Admin.
+    function isValidBalanceUpdate(newData, oldData) {
+      return !('balance' in newData) || 
+             !('balance' in oldData) || 
+             newData.balance <= oldData.balance;
+    }
+
+    // =========================================================================
+    // PERFIL DE USUARIO Y SUBCOLECCIONES
+    // =========================================================================
+    match /users/{userId} {
+      // Lectura permitida si está autenticado (para búsquedas de destinatarios por DNI/teléfono)
+      allow read: if isAuthenticated();
+      
+      // Creación: Solo el titular con saldo inicial estrictamente 0.0
+      allow create: if isOwner(userId) && isValidInitialBalance(request.resource.data);
+      
+      // Actualización: Solo el titular; prohibido terminantemente aumentarse saldo desde el cliente
+      allow update: if isOwner(userId) && isValidBalanceUpdate(request.resource.data, resource.data);
+      
+      // Eliminación permitida al titular
+      allow delete: if isOwner(userId);
+
+      // Cuenta bancaria principal (balance, número de cuenta, CCI)
+      match /account/main {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidInitialBalance(request.resource.data);
+        allow update: if isOwner(userId) && isValidBalanceUpdate(request.resource.data, resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      // Transacciones históricas del usuario
+      match /transactions/{transactionId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Metas de ahorro
+      match /savings_goals/{goalId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Presupuestos mensuales
+      match /budgets/{budgetId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Categorías personalizadas
+      match /categories/{categoryId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Notificaciones bancarias individuales
+      // Lectura y borrado por el dueño; creación permitida por usuarios autenticados (transferencias entre pares)
+      match /notifications/{notificationId} {
+        allow read, delete, update: if isOwner(userId);
+        allow create: if isAuthenticated();
+      }
+
+      // Registro privado de pagos de servicios del usuario
+      match /service_payments/{paymentId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Logs de seguridad del dispositivo del usuario
+      match /security_audit_logs/{logId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // =========================================================================
+    // IDENTIDADES (MAPEADOR ANTI-DUPLICADOS DNI / TELÉFONO)
+    // =========================================================================
+    match /identities/{dni} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // =========================================================================
+    // PINES DE SEGURIDAD (HASH DE PIN DE 6 DÍGITOS)
+    // =========================================================================
+    match /security_pins/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // =========================================================================
+    // CÓDIGOS CIP (TRANSFERENCIAS INTERBANCARIAS / DEPÓSITOS)
+    // =========================================================================
+    match /cip_codes/{cipCode} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // =========================================================================
+    // RETIROS SIN TARJETA (CÓDIGOS OTP / QR DE RETIRO)
+    // =========================================================================
+    match /withdrawals/{withdrawalId} {
+      // Lectura por autenticados para validar códigos en pantalla o simulación de cajero
+      allow read: if isAuthenticated();
+      // Creación permitida al titular
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      // Actualización de estado (cancelación por usuario o completado)
+      allow update: if isAuthenticated();
+      allow delete: if false; // Los retiros quedan en historial para auditoría
+    }
+
+    // =========================================================================
+    // CATÁLOGO DE SERVICIOS PÚBLICOS Y PRIVADOS
+    // =========================================================================
+    match /services/{serviceId} {
+      allow read: if true; // Todos los clientes pueden consultar el catálogo
+      allow write: if false; // Solo administradores mediante Firebase Admin SDK
+    }
+
+    // =========================================================================
+    // REGISTRO GLOBAL DE PAGOS DE SERVICIOS
+    // =========================================================================
+    match /service_payments/{paymentId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid);
+      allow update, delete: if false; // Inmutable para clientes
+    }
+
+    // =========================================================================
+    // CANALES DE ATENCIÓN Y SOPORTE OFICIAL
+    // =========================================================================
+    match /support_channels/{channelId} {
+      allow read: if true; // Visible para usuarios de la app
+      allow write: if false; // Solo administradores mediante Firebase Admin SDK
+    }
+
+    // =========================================================================
+    // COMPROBANTES Y VOUCHERS VERIFICABLES
+    // =========================================================================
+    match /vouchers/{serial} {
+      allow read: if true; // Acceso público para verificar autenticidad con serial/código QR
+      allow create: if isAuthenticated(); // La app registra comprobante al emitir operación
+      allow update, delete: if false; // Estrictamente inmutable para evitar falsificaciones
+    }
+
+    // =========================================================================
+    // CONFIGURACIÓN GLOBAL DE LA APLICACIÓN (GATE / MANTENIMIENTO)
+    // =========================================================================
+    match /app_config/global {
+      allow read: if true; // La app consulta si hay mantenimiento antes o después del login
+      allow write: if false; // Solo administradores mediante Firebase Admin SDK
+    }
+
+    // =========================================================================
+    // DISPOSITIVOS BLOQUEADOS POR FRAUDE O ROBO
+    // =========================================================================
+    match /blocked_devices/{deviceId} {
+      allow read: if true; // La app verifica si el deviceId actual está vetado
+      allow write: if false; // Solo administradores mediante Firebase Admin SDK
+    }
+
+    // =========================================================================
+    // COMUNICADOS GLOBALES / BANNERS IN-APP
+    // =========================================================================
+    match /global_announcements/{announcementId} {
+      allow read: if true; // Visibles para todos los usuarios
+      allow write: if false; // Solo administradores mediante Firebase Admin SDK
+    }
+
+    // =========================================================================
+    // AUDITORÍA DIARIA DE EVENTOS DE SEGURIDAD
+    // =========================================================================
+    match /security_logs_by_date/{dateDay}/events/{logId} {
+      allow create: if isAuthenticated(); // La app registra eventos de sesión/IP
+      allow read, update, delete: if false; // Solo visible por el Panel Admin con Admin SDK
+    }
+
+    // Denegación por defecto para cualquier ruta no contemplada explícitamente
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "panel_admin_users": {
+      ".read": false,
+      ".write": false
+    },
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        "balance": {
+          ".validate": "(!data.exists() && (newData.val() === 0 || newData.val() === 0.0)) || (data.exists() && newData.val() <= data.val())"
+        },
+        "account": {
+          ".read": "$uid === auth.uid",
+          "balance": {
+            ".validate": "(!data.exists() && (newData.val() === 0 || newData.val() === 0.0)) || (data.exists() && newData.val() <= data.val())"
+          },
+          ".write": "$uid === auth.uid"
+        },
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "app_status": {
+      ".read": true,
+      ".write": false
+    },
+    "system_maintenance": {
+      ".read": true,
+      ".write": false
+    }
+  }
+}

@@ -1,9 +1,5 @@
 package com.example.ui.screens
 
-import android.content.ContextWrapper
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,22 +11,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,91 +33,43 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.fragment.app.FragmentActivity
-import com.example.ui.theme.AccentGold
 import com.example.ui.theme.BackgroundDark
-import com.example.ui.theme.BorderGlass
-import com.example.ui.theme.EmeraldLight
+import com.example.ui.theme.BorderDark
 import com.example.ui.theme.EmeraldPrimary
-import com.example.ui.theme.ExpenseRed
+import com.example.ui.theme.ExpenseRedLight
 import com.example.ui.theme.PrimaryViolet
-import com.example.ui.theme.PrimaryVioletDark
 import com.example.ui.theme.SurfaceCard
-import com.example.ui.theme.SurfaceDark
+import com.example.ui.theme.SurfaceElevated
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import com.example.ui.util.BiometricAuthManager
 
 @Composable
 fun SecurityPinScreen(
     userName: String,
-    isBiometricAllowed: Boolean = true,
-    onPinEntered: (pin: String) -> Unit,
-    onBiometricSuccess: () -> Unit = {},
-    onLogout: () -> Unit = {}
+    isBiometricAllowed: Boolean,
+    errorMessage: String? = null,
+    onPinEntered: (String) -> Unit,
+    onRequestBiometric: () -> Unit = {},
+    onLogout: () -> Unit
 ) {
-    val context = LocalContext.current
-    val activity = remember(context) {
-        var ctx = context
-        while (ctx is ContextWrapper) {
-            if (ctx is FragmentActivity) return@remember ctx
-            ctx = ctx.baseContext
-        }
-        null
-    }
-
-    val isDeviceSecure = remember(context) {
-        BiometricAuthManager.isDeviceSecurityConfigured(context)
-    }
-    val canUseBiometrics = isBiometricAllowed && isDeviceSecure
-
     var enteredPin by remember { mutableStateOf("") }
-    var pinError by remember { mutableStateOf<String?>(null) }
+    val maxPinLength = 6
 
-    val triggerBiometricPrompt = {
-        if (activity != null && canUseBiometrics) {
-            BiometricAuthManager.authenticate(
-                activity = activity,
-                title = "Desbloqueo de BC-BANK",
-                subtitle = "Usa tu huella, rostro o bloqueo del teléfono",
-                onSuccess = {
-                    onBiometricSuccess()
-                },
-                onError = { errorCode, errString ->
-                    if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED &&
-                        errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
-                        errorCode != androidx.biometric.BiometricPrompt.ERROR_CANCELED
-                    ) {
-                        pinError = errString
-                    }
-                },
-                onFailed = {
-                    pinError = "No reconocido. Intenta con tu huella o ingresa tu PIN."
-                }
-            )
+    LaunchedEffect(errorMessage) {
+        if (!errorMessage.isNullOrBlank()) {
+            kotlinx.coroutines.delay(600)
+            enteredPin = ""
         }
     }
 
-    LaunchedEffect(canUseBiometrics) {
-        if (canUseBiometrics && activity != null) {
-            kotlinx.coroutines.delay(200)
-            triggerBiometricPrompt()
-        }
-    }
-
-    LaunchedEffect(enteredPin) {
-        if (enteredPin.length == 6) {
-            onPinEntered(enteredPin)
+    LaunchedEffect(isBiometricAllowed) {
+        if (isBiometricAllowed) {
+            onRequestBiometric()
         }
     }
 
@@ -134,194 +77,138 @@ fun SecurityPinScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundDark)
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-        contentAlignment = Alignment.Center
+            .padding(24.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .widthIn(max = 440.dp)
-                .padding(horizontal = 28.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Header
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 16.dp)
+            Spacer(modifier = Modifier.height(40.dp))
+
+            // Official Brand Logo Emblem with subtle glow
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(
+                        androidx.compose.ui.graphics.Brush.linearGradient(
+                            listOf(EmeraldPrimary.copy(alpha = 0.8f), PrimaryViolet.copy(alpha = 0.4f))
+                        )
+                    )
+                    .padding(2.dp)
             ) {
-                Box(
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_bcbank_brand_logo),
+                    contentDescription = "BC-BANK Logo",
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     modifier = Modifier
-                        .size(68.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(PrimaryViolet, PrimaryVioletDark)
-                            )
-                        )
-                        .border(1.5.dp, BorderGlass, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "PIN de Seguridad",
-                        tint = AccentGold,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "BC-BANK Seguridad",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif,
-                    color = TextPrimary
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(20.dp))
                 )
+            }
 
-                Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-                val displayName = if (userName.isNotBlank() && userName != "Usuario") userName else "Usuario"
-                Text(
-                    text = "Hola, $displayName. Introduce tu PIN de 6 dígitos para desbloquear tu sesión.",
-                    fontSize = 13.sp,
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 18.sp
-                )
+            Text(
+                text = "¡Hola, $userName!",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
 
-                Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-                // 6-digit indicator dots
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(6) { index ->
-                        val isFilled = index < enteredPin.length
-                        Box(
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isFilled) EmeraldPrimary else Color(0xFF1E202B)
-                                )
-                                .border(
-                                    1.dp,
-                                    if (isFilled) EmeraldLight else BorderGlass,
-                                    CircleShape
-                                )
-                        )
-                    }
-                }
+            Text(
+                text = if (!errorMessage.isNullOrBlank()) errorMessage else "Ingresa tu PIN de seguridad (6 dígitos)",
+                fontSize = 14.sp,
+                fontWeight = if (!errorMessage.isNullOrBlank()) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (!errorMessage.isNullOrBlank()) ExpenseRedLight else TextSecondary
+            )
 
-                if (pinError != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = pinError ?: "",
-                        fontSize = 12.sp,
-                        color = ExpenseRed,
-                        textAlign = TextAlign.Center
-                    )
-                }
+            Spacer(modifier = Modifier.height(32.dp))
 
-                if (canUseBiometrics) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
+            // PIN Dots Indicator
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (i in 0 until maxPinLength) {
+                    val isFilled = i < enteredPin.length
+                    val dotColor = if (!errorMessage.isNullOrBlank()) ExpenseRedLight else if (isFilled) EmeraldPrimary else SurfaceElevated
+                    val borderColor = if (!errorMessage.isNullOrBlank()) ExpenseRedLight else if (isFilled) EmeraldPrimary else BorderDark
+                    Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFF141620))
-                            .border(1.dp, BorderGlass, RoundedCornerShape(20.dp))
-                            .clickable {
-                                pinError = null
-                                triggerBiometricPrompt()
-                            }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                            .testTag("biometric_quick_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Fingerprint,
-                            contentDescription = "Desbloquear con biometría",
-                            tint = EmeraldPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Usar huella / bloqueo",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = EmeraldLight
-                        )
-                    }
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(dotColor)
+                            .border(
+                                width = 1.dp,
+                                color = borderColor,
+                                shape = CircleShape
+                            )
+                    )
                 }
             }
 
-            // Numeric Keypad
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                val rows = listOf(
-                    listOf("1", "2", "3"),
-                    listOf("4", "5", "6"),
-                    listOf("7", "8", "9"),
-                    listOf("BIO", "0", "DEL")
-                )
+            Spacer(modifier = Modifier.weight(1f))
 
-                rows.forEach { row ->
+            // Numeric Keypad
+            val keyRows = listOf(
+                listOf("1", "2", "3"),
+                listOf("4", "5", "6"),
+                listOf("7", "8", "9"),
+                listOf("BIO", "0", "DEL")
+            )
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                for (row in keyRows) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        row.forEach { key ->
+                        for (key in row) {
                             when (key) {
                                 "BIO" -> {
-                                    if (canUseBiometrics) {
+                                    if (isBiometricAllowed) {
                                         Box(
+                                            contentAlignment = Alignment.Center,
                                             modifier = Modifier
-                                                .size(68.dp)
+                                                .size(72.dp)
                                                 .clip(CircleShape)
                                                 .background(SurfaceCard)
-                                                .border(1.dp, BorderGlass, CircleShape)
-                                                .clickable {
-                                                    pinError = null
-                                                    triggerBiometricPrompt()
-                                                }
-                                                .testTag("keypad_biometric_button"),
-                                            contentAlignment = Alignment.Center
+                                                .border(1.dp, BorderDark, CircleShape)
+                                                .clickable { onRequestBiometric() }
+                                                .testTag("pin_biometric_button")
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Fingerprint,
-                                                contentDescription = "Huella Digital o Bloqueo",
+                                                contentDescription = "Biometría",
                                                 tint = EmeraldPrimary,
-                                                modifier = Modifier.size(30.dp)
+                                                modifier = Modifier.size(32.dp)
                                             )
                                         }
                                     } else {
-                                        Spacer(modifier = Modifier.size(68.dp))
+                                        Spacer(modifier = Modifier.size(72.dp))
                                     }
                                 }
                                 "DEL" -> {
                                     Box(
+                                        contentAlignment = Alignment.Center,
                                         modifier = Modifier
-                                            .size(68.dp)
+                                            .size(72.dp)
                                             .clip(CircleShape)
                                             .background(SurfaceCard)
-                                            .border(1.dp, BorderGlass, CircleShape)
+                                            .border(1.dp, BorderDark, CircleShape)
                                             .clickable {
                                                 if (enteredPin.isNotEmpty()) {
                                                     enteredPin = enteredPin.dropLast(1)
-                                                    pinError = null
                                                 }
-                                            },
-                                        contentAlignment = Alignment.Center
+                                            }
+                                            .testTag("pin_delete_button")
                                     ) {
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.Backspace,
@@ -333,19 +220,22 @@ fun SecurityPinScreen(
                                 }
                                 else -> {
                                     Box(
+                                        contentAlignment = Alignment.Center,
                                         modifier = Modifier
-                                            .size(68.dp)
+                                            .size(72.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF141620))
-                                            .border(1.dp, BorderGlass, CircleShape)
+                                            .background(SurfaceCard)
+                                            .border(1.dp, BorderDark, CircleShape)
                                             .clickable {
-                                                if (enteredPin.length < 6) {
-                                                    enteredPin += key
-                                                    pinError = null
+                                                if (enteredPin.length < maxPinLength) {
+                                                    val newPin = enteredPin + key
+                                                    enteredPin = newPin
+                                                    if (newPin.length == maxPinLength) {
+                                                        onPinEntered(newPin)
+                                                    }
                                                 }
                                             }
-                                            .testTag("keypad_digit_$key"),
-                                        contentAlignment = Alignment.Center
+                                            .testTag("pin_key_$key")
                                     ) {
                                         Text(
                                             text = key,
@@ -361,24 +251,28 @@ fun SecurityPinScreen(
                 }
             }
 
-            // Bottom Actions (Logout / Cerrar Sesión)
+            Spacer(modifier = Modifier.height(20.dp))
+
             TextButton(
                 onClick = onLogout,
-                modifier = Modifier.padding(bottom = 8.dp)
+                modifier = Modifier.testTag("pin_logout_button")
             ) {
                 Icon(
-                    imageVector = Icons.Default.Logout,
+                    imageVector = Icons.AutoMirrored.Filled.ExitToApp,
                     contentDescription = null,
-                    tint = TextMuted,
-                    modifier = Modifier.size(16.dp)
+                    tint = ExpenseRedLight,
+                    modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Cerrar sesión en este dispositivo",
-                    color = TextMuted,
-                    fontSize = 13.sp
+                    text = "Cerrar Sesión",
+                    color = ExpenseRedLight,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

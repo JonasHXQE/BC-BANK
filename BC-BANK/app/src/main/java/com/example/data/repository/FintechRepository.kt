@@ -40,17 +40,35 @@ class FintechRepository(
     suspend fun insertNotification(notification: BankNotificationEntity): Long =
         notificationDao.insertNotification(notification)
 
-    suspend fun markNotificationAsRead(id: Long) =
+    suspend fun markNotificationAsRead(id: Long, uid: String? = null) {
         notificationDao.markAsRead(id)
+        val targetUid = uid ?: getCurrentUid()
+        if (targetUid.isNotBlank()) {
+            FirebaseManager.updateNotificationStatusInFirestore(targetUid, id, "SEEN")
+        }
+    }
 
-    suspend fun markAllNotificationsAsRead(uid: String) =
+    suspend fun markAllNotificationsAsRead(uid: String) {
         notificationDao.markAllAsRead(uid)
+        if (uid.isNotBlank()) {
+            FirebaseManager.markAllNotificationsAsSeenInFirestore(uid)
+        }
+    }
 
-    suspend fun deleteNotification(id: Long) =
+    suspend fun deleteNotification(id: Long, uid: String? = null) {
         notificationDao.deleteNotification(id)
+        val targetUid = uid ?: getCurrentUid()
+        if (targetUid.isNotBlank()) {
+            FirebaseManager.updateNotificationStatusInFirestore(targetUid, id, "DELETED")
+        }
+    }
 
-    suspend fun clearAllNotifications(uid: String) =
+    suspend fun clearAllNotifications(uid: String) {
         notificationDao.clearAllNotifications(uid)
+        if (uid.isNotBlank()) {
+            FirebaseManager.clearAllNotificationsInFirestore(uid)
+        }
+    }
 
     private fun getCurrentUid(): String {
         return FirebaseManager.getCurrentUserUid() ?: "local_user"
@@ -269,29 +287,9 @@ class FintechRepository(
     }
 
     suspend fun depositFunds(amount: Double, note: String): Result<String> {
-        val currentAccount = accountDao.getAccount() ?: return Result.failure(Exception("Cuenta no encontrada"))
-        val opCode = "OP-${Random.nextInt(100000, 999999)}"
-        val newBalance = currentAccount.balance + amount
-        val updatedAccount = currentAccount.copy(balance = newBalance)
-        accountDao.updateBalance(newBalance)
-
-        val tx = TransactionEntity(
-            title = if (note.isNotBlank()) note else "Ingreso de Fondos",
-            amount = amount,
-            type = "INCOME",
-            category = "Otro",
-            timestamp = System.currentTimeMillis(),
-            recipientOrSender = "Depósito en Efectivo / Agente",
-            referenceNumber = opCode,
-            note = note
-        )
-        transactionDao.insertTransaction(tx)
-
-        val uid = getCurrentUid()
-        FirebaseManager.syncAccountToFirestore(updatedAccount, uid)
-        FirebaseManager.syncTransactionToFirestore(tx, uid)
-
-        return Result.success(opCode)
+        // Los depósitos directos desde el cliente están estrictamente prohibidos por seguridad bancaria.
+        // Los fondos solo pueden ser acreditados y autorizados desde el Panel Admin mediante Firebase Admin SDK.
+        return Result.failure(Exception("Los depósitos de saldo solo pueden ser procesados y autorizados por la administración de BC-BANK."))
     }
 
     suspend fun depositToSavingsGoal(goalId: Long, amount: Double): Result<Unit> {
@@ -770,6 +768,10 @@ class FintechRepository(
 
     suspend fun insertOrUpdateAccount(account: AccountInfoEntity) {
         accountDao.insertOrUpdate(account)
+    }
+
+    suspend fun getAccount(): AccountInfoEntity? {
+        return accountDao.getAccount()
     }
 
     suspend fun insertTransaction(transaction: TransactionEntity): Long {

@@ -1,7 +1,6 @@
 package com.example.util
 
 import android.content.Context
-import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
@@ -12,44 +11,31 @@ import java.security.MessageDigest
 import java.util.UUID
 
 object GoogleAuthHelper {
-    private const val TAG = "GoogleAuthHelper"
-    // Web client ID configured in Firebase project (blackcore-bank)
-    const val WEB_CLIENT_ID = "5449433145-36p2t8me9kgivrmtpkjuphfvskmdaeov.apps.googleusercontent.com"
-
-    fun getWebClientId(context: Context): String {
-        return try {
-            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
-            if (resId != 0) {
-                val resolved = context.getString(resId)
-                if (resolved.isNotBlank()) resolved else WEB_CLIENT_ID
-            } else {
-                WEB_CLIENT_ID
-            }
-        } catch (_: Exception) {
-            WEB_CLIENT_ID
-        }
-    }
 
     suspend fun launchGoogleSignIn(
         context: Context,
         onSuccess: (idToken: String, email: String, displayName: String) -> Unit,
-        onCancelled: (reason: String) -> Unit,
-        onError: (errorMsg: String) -> Unit
+        onCancelled: (String) -> Unit,
+        onError: (String) -> Unit
     ) {
-        val credentialManager = CredentialManager.create(context)
         try {
+            val credentialManager = CredentialManager.create(context)
+
             val rawNonce = UUID.randomUUID().toString()
-            val bytes = rawNonce.toByteArray()
             val md = MessageDigest.getInstance("SHA-256")
-            val digest = md.digest(bytes)
+            val digest = md.digest(rawNonce.toByteArray())
             val hashedNonce = digest.fold("") { str, it -> str + "%02x".format(it) }
 
-            val clientId = getWebClientId(context)
-            Log.d(TAG, "Using Web Client ID for Google Sign In: $clientId")
+            val webClientId = try {
+                val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+                if (resId != 0) context.getString(resId) else "5449433145-36p2t8me9kgivrmtpkjuphfvskmdaeov.apps.googleusercontent.com"
+            } catch (e: Exception) {
+                "5449433145-36p2t8me9kgivrmtpkjuphfvskmdaeov.apps.googleusercontent.com"
+            }
 
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(clientId)
+                .setServerClientId(webClientId)
                 .setAutoSelectEnabled(false)
                 .setNonce(hashedNonce)
                 .build()
@@ -58,32 +44,40 @@ object GoogleAuthHelper {
                 .addCredentialOption(googleIdOption)
                 .build()
 
-            val response = credentialManager.getCredential(
+            val result = credentialManager.getCredential(
                 request = request,
                 context = context
             )
 
-            val credential = response.credential
+            val credential = result.credential
             if (credential is androidx.credentials.CustomCredential &&
                 credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
             ) {
                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                val idToken = googleIdTokenCredential.idToken
-                val email = googleIdTokenCredential.id
-                val displayName = googleIdTokenCredential.displayName ?: email.substringBefore("@")
-                onSuccess(idToken, email, displayName)
+                onSuccess(
+                    googleIdTokenCredential.idToken,
+                    googleIdTokenCredential.id,
+                    googleIdTokenCredential.displayName ?: ""
+                )
             } else {
-                onError("Tipo de credencial no soportado: ${credential.type}")
+                onError("Tipo de credencial no reconocido")
             }
         } catch (e: GetCredentialCancellationException) {
-            Log.d(TAG, "Google Sign In cancelled by user")
-            onCancelled("Inicio de sesión con Google cancelado por el usuario.")
+            onCancelled("Inicio de sesión cancelado")
         } catch (e: GetCredentialException) {
-            Log.w(TAG, "Google Sign In error: ${e.message}")
-            onError("No se pudo iniciar con Google: ${e.localizedMessage ?: e.message}")
+            val msg = e.localizedMessage ?: e.message ?: ""
+            if (msg.contains("cancel", ignoreCase = true) || msg.contains("16:", ignoreCase = true) || msg.contains("closed", ignoreCase = true)) {
+                onCancelled("Inicio de sesión cancelado")
+            } else {
+                onError(msg.ifBlank { "Error al autenticar con Google" })
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Unexpected Google Auth error", e)
-            onError("Error al conectar con Google: ${e.localizedMessage ?: e.message}")
+            val msg = e.localizedMessage ?: e.message ?: ""
+            if (msg.contains("cancel", ignoreCase = true) || msg.contains("16:", ignoreCase = true) || msg.contains("closed", ignoreCase = true)) {
+                onCancelled("Inicio de sesión cancelado")
+            } else {
+                onError(msg.ifBlank { "Error inesperado al conectar con Google" })
+            }
         }
     }
 }

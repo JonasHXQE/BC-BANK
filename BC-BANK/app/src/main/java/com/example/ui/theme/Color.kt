@@ -2,62 +2,56 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Canvas & Glass Surfaces (Obsidian OLED Dark with Frosted Glass)
-val BackgroundDark = Color(0xFF070709)       // Deep obsidian black from screenshot
-val SurfaceDark = Color(0xFF0D0E14)          // Deep glass charcoal
-val SurfaceCard = Color(0xFF12121A)          // Sleek dark glass card
-val SurfaceElevated = Color(0xFF181822)      // Elevated surface
-val SurfaceGlass = Color(0xCC111218)         // Translucent glass for blur effect
-val SurfaceGlassHigh = Color(0xEE14141E)     // Higher opacity frosted glass
+val Purple80 = Color(0xFFD0BCFF)
+val PurpleGrey80 = Color(0xFFCCC2DC)
+val Pink80 = Color(0xFFEFB8C8)
 
-// Borders & Glass Accents
-val BorderDark = Color(0xFF1A1B24)
-val BorderSubtle = Color(0xFF262736)
-val BorderGlass = Color(0x1FFFFFFF)          // 12% white frosted glass border
-val BorderGlassHighlight = Color(0x33FFFFFF) // 20% white highlight edge
+val Purple40 = Color(0xFF0066FF)
+val PurpleGrey40 = Color(0xFF625B71)
+val Pink40 = Color(0xFF7D5260)
 
-// Primary Brand & Electric Violet (from screenshot: Action button, active highlights, avatar)
-val PrimaryViolet = Color(0xFF6D5BFF)
-val PrimaryVioletLight = Color(0xFF8C7DFF)
-val PrimaryVioletDark = Color(0xFF251E4E)
-val PrimaryVioletGlow = Color(0x4D6D5BFF)
-val AvatarPurple = Color(0xFF7062FF)
-val CurrencyPurple = Color(0xFF8A70FF)       // The vivid "S/" currency prefix
+// BC-BANK Ultra-Deep AMOLED Dark Palette (Non-glare, ultra crisp)
+val BackgroundDark = Color(0xFF000000) // Pure AMOLED Pitch Black
+val SurfaceDark = Color(0xFF07090E)    // Ultra deep obsidian
+val SurfaceCard = Color(0xFF0D111A)    // Deep tinted glass card
+val SurfaceElevated = Color(0xFF141A26)// Deep surface elevation
+val SurfaceGlass = Color(0x990D111A)   // Frosted glass effect
 
-// Functional Financial Colors (Mint & Coral)
-val IncomeGreen = Color(0xFF00D09C)          // Mint / Emerald down arrow & positive pill
-val IncomeGreenLight = Color(0xFF34D399)
-val IncomeGreenDark = Color(0xFF064E3B)
-val IncomeGreenBg = Color(0x2900D09C)
+val TextPrimary = Color(0xFFFFFFFF)    // Razor-sharp crisp pure white
+val TextSecondary = Color(0xFF94A3B8)  // Crisp readable slate
+val TextMuted = Color(0xFF64748B)
 
-val ExpenseRed = Color(0xFFFF6B6B)           // Vibrant Coral / Salmon red from screenshot
-val ExpenseRedLight = Color(0xFFFF8E8E)
-val ExpenseRedDark = Color(0xFF450A0A)
-val ExpenseRedBg = Color(0x29FF6B6B)
+val PrimaryViolet = Color(0xFF6366F1)  // Modern Indigo / Electric Violet
+val PrimaryVioletLight = Color(0xFF818CF8)
+val PrimaryVioletDark = Color(0xFF4338CA)
+val PrimaryVioletGlow = Color(0x4D6366F1)
+val PurpleAccent = Color(0xFF6366F1)
+val CurrencyPurple = Color(0xFF38BDF8) // Crisp Cyan for currency highlight
+val AvatarPurple = Color(0xFF0284C7)
 
-// Accents (from screenshot: "Ver todas", "Servicios", "Retiro / QR")
-val AccentGold = Color(0xFFFFA940)           // Amber / Gold for "Ver todas →", "Inicio", "Servicios"
-val AccentCyan = Color(0xFF22D3EE)           // Electric Cyan for "Retiro / QR"
-val WarningYellow = Color(0xFFFFA940)
-val GoldAccent = Color(0xFFFFA940)
-val InfoBlue = Color(0xFF38BDF8)
-val PurpleAccent = Color(0xFF8B5CF6)
+// Replaced Green with Ultra-Tech Electric Royal Blue & Neon Cyan (Crisp, modern, non-glare)
+val BrandPrimary = Color(0xFF0066FF)
+val BrandPrimaryLight = Color(0xFF38BDF8)
+val BrandPrimaryDark = Color(0xFF0044CC)
+val BrandPrimaryGlow = Color(0x4D0066FF)
 
-// Ambient Atmospheric Blur Colors
-val AmbientGlowViolet = Color(0x386D5BFF)
-val AmbientGlowBlue = Color(0x2038BDF8)
+val EmeraldPrimary = Color(0xFF0066FF) // Green replaced with electric royal blue
+val EmeraldLight = Color(0xFF38BDF8)   // Green replaced with vivid cyber cyan
+val EmeraldDark = Color(0xFF0044CC)
+val EmeraldGlow = Color(0x4D0066FF)
+val IncomeGreen = Color(0xFF38BDF8)    // Cyan for positive incomes / credits
 
-// Compatibility Aliases with existing codebase
-val EmeraldPrimary = PrimaryViolet
-val EmeraldLight = IncomeGreen
-val EmeraldGlow = PrimaryVioletGlow
-val EmeraldDark = PrimaryVioletDark
+val ExpenseRed = Color(0xFFEF4444)
+val ExpenseRedLight = Color(0xFFF87171)
 
-// Text Colors
-val TextPrimary = Color(0xFFFFFFFF)
-val TextSecondary = Color(0xFF9CA3AF)
-val TextMuted = Color(0xFF6B7280)
-val TextGreen = IncomeGreen
-val TextGold = AccentGold
+val WarningYellow = Color(0xFFF59E0B)
+val AccentGold = Color(0xFFF59E0B)
+val GoldAccent = Color(0xFFFBBF24)
 
+val AccentCyan = Color(0xFF38BDF8)
+val InfoBlue = Color(0xFF3B82F6)
+
+val BorderDark = Color(0xFF161E2E)     // Ultra thin dark subtle border
+val BorderSubtle = Color(0xFF0F1522)
+val BorderGlass = Color(0x3338BDF8)    // Frosted glass border with subtle cyan-blue glow
 

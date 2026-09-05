@@ -7,13 +7,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.example.MainActivity
-import com.example.R
 
 object BankNotificationManager {
-    private const val CHANNEL_ID = "bcbank_operations"
+    private const val CHANNEL_ID = "bcbank_transactions_channel"
     private const val CHANNEL_NAME = "Operaciones BC-BANK"
 
     fun showSystemNotification(
@@ -24,8 +21,7 @@ object BankNotificationManager {
         amountTag: String? = null,
         notificationId: Int = System.currentTimeMillis().toInt()
     ) {
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -33,41 +29,39 @@ object BankNotificationManager {
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notificaciones de transacciones y seguridad de BC-BANK"
-                enableLights(true)
+                description = "Notificaciones bancarias y alertas de seguridad"
                 enableVibration(true)
             }
             notificationManager.createNotificationChannel(channel)
         }
 
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            0,
+            notificationId,
             intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val displayText = if (!amountTag.isNullOrBlank()) "$message [$amountTag]" else message
+        val fullText = if (!amountTag.isNullOrBlank()) {
+            "$message [$amountTag]"
+        } else {
+            message
+        }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setColor(ContextCompat.getColor(context, R.color.emerald_primary))
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
-            .setContentText(displayText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(displayText))
+            .setContentText(fullText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(fullText))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
 
-        try {
-            notificationManager.notify(notificationId, notification)
-        } catch (_: SecurityException) {
-            // Permission not granted on Android 13+
-        }
+        notificationManager.notify(notificationId, notification)
     }
 
     fun cancelAllNotifications(context: Context) {

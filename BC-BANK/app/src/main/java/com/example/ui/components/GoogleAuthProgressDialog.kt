@@ -90,7 +90,7 @@ fun GoogleAuthProgressDialog(
 ) {
     if (state is GoogleAuthState.Idle) return
 
-    val isDismissible = state is GoogleAuthState.Error || state is GoogleAuthState.Cancelled || state is GoogleAuthState.RequirePin
+    val isDismissible = state !is GoogleAuthState.Success
 
     var pinInput by remember(state) { mutableStateOf("") }
     var pinError by remember(state) { mutableStateOf<String?>(null) }

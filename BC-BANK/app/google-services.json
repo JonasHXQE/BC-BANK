@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "5449433145-t5r2g24uvgthmcba5qoh432ge7054jim.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.blackcore.bank",
+            "certificate_hash": "1e9777a93c2e4e69be12076f02e8874cee169081"
+          }
+        },
+        {
           "client_id": "5449433145-36p2t8me9kgivrmtpkjuphfvskmdaeov.apps.googleusercontent.com",
           "client_type": 3
         }

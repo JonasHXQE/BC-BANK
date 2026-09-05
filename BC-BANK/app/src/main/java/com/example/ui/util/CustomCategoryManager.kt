@@ -20,67 +20,66 @@ data class CategoryItem(
 )
 
 object CustomCategoryManager {
-    private val defaultExpenses = listOf(
-        CategoryItem("exp_1", "Alimentación"),
-        CategoryItem("exp_2", "Transporte"),
-        CategoryItem("exp_3", "Servicios"),
-        CategoryItem("exp_4", "Compras"),
-        CategoryItem("exp_5", "Entretenimiento"),
-        CategoryItem("exp_6", "Salud"),
-        CategoryItem("exp_7", "Educación"),
-        CategoryItem("exp_8", "Transferencia"),
-        CategoryItem("exp_9", "Otro")
-    )
-
-    private val defaultIncomes = listOf(
-        CategoryItem("inc_1", "Sueldo"),
-        CategoryItem("inc_2", "Ventas"),
-        CategoryItem("inc_3", "Inversiones"),
-        CategoryItem("inc_4", "Depósito"),
-        CategoryItem("inc_5", "Transferencia Recibida"),
-        CategoryItem("inc_6", "Otro")
-    )
-
-    private val defaultGoals = listOf(
-        CategoryItem("goal_1", "Fondo de Emergencia", icon = "EMERGENCY"),
-        CategoryItem("goal_2", "Viajes y Vacaciones", icon = "TRAVEL"),
-        CategoryItem("goal_3", "Tecnología y Gadgets", icon = "TECH"),
-        CategoryItem("goal_4", "Hogar y Muebles", icon = "HOME"),
-        CategoryItem("goal_5", "Vehículo / Auto", icon = "CAR"),
-        CategoryItem("goal_6", "Ahorro General", icon = "SAVINGS")
-    )
-
-    private val defaultBudgets = listOf(
-        CategoryItem("bud_1", "Alimentación"),
-        CategoryItem("bud_2", "Transporte"),
-        CategoryItem("bud_3", "Servicios"),
-        CategoryItem("bud_4", "Entretenimiento"),
-        CategoryItem("bud_5", "Salud"),
-        CategoryItem("bud_6", "Educación")
-    )
-
-    private val _expenseCategories = MutableStateFlow(defaultExpenses)
+    private val _expenseCategories = MutableStateFlow<List<CategoryItem>>(emptyList())
     val expenseCategories: StateFlow<List<CategoryItem>> = _expenseCategories.asStateFlow()
 
-    private val _incomeCategories = MutableStateFlow(defaultIncomes)
+    private val _incomeCategories = MutableStateFlow<List<CategoryItem>>(emptyList())
     val incomeCategories: StateFlow<List<CategoryItem>> = _incomeCategories.asStateFlow()
 
-    private val _goalCategories = MutableStateFlow(defaultGoals)
+    private val _goalCategories = MutableStateFlow<List<CategoryItem>>(emptyList())
     val goalCategories: StateFlow<List<CategoryItem>> = _goalCategories.asStateFlow()
 
-    private val _budgetCategories = MutableStateFlow(defaultBudgets)
+    private val _budgetCategories = MutableStateFlow<List<CategoryItem>>(emptyList())
     val budgetCategories: StateFlow<List<CategoryItem>> = _budgetCategories.asStateFlow()
 
-    fun addCategory(name: String, type: CategoryType) {
-        val trimmed = name.trim()
-        if (trimmed.isBlank()) return
-        val newItem = CategoryItem(name = trimmed, isCustom = true)
+    fun setCategoriesFromCloud(list: List<CategoryItem>, type: CategoryType) {
         when (type) {
-            CategoryType.EXPENSE -> _expenseCategories.value = _expenseCategories.value + newItem
-            CategoryType.INCOME -> _incomeCategories.value = _incomeCategories.value + newItem
-            CategoryType.GOAL -> _goalCategories.value = _goalCategories.value + newItem
-            CategoryType.BUDGET -> _budgetCategories.value = _budgetCategories.value + newItem
+            CategoryType.EXPENSE -> _expenseCategories.value = list
+            CategoryType.INCOME -> _incomeCategories.value = list
+            CategoryType.GOAL -> _goalCategories.value = list
+            CategoryType.BUDGET -> _budgetCategories.value = list
         }
+    }
+
+    fun clearAllCategories() {
+        _expenseCategories.value = emptyList()
+        _incomeCategories.value = emptyList()
+        _goalCategories.value = emptyList()
+        _budgetCategories.value = emptyList()
+    }
+
+    fun addCategory(
+        name: String,
+        type: CategoryType,
+        id: String = UUID.randomUUID().toString(),
+        icon: String = "DEFAULT"
+    ): CategoryItem? {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return null
+        val newItem = CategoryItem(id = id, name = trimmed, isCustom = true, icon = icon)
+        when (type) {
+            CategoryType.EXPENSE -> {
+                if (_expenseCategories.value.none { it.id == id || it.name.equals(trimmed, ignoreCase = true) }) {
+                    _expenseCategories.value = _expenseCategories.value + newItem
+                }
+            }
+            CategoryType.INCOME -> {
+                if (_incomeCategories.value.none { it.id == id || it.name.equals(trimmed, ignoreCase = true) }) {
+                    _incomeCategories.value = _incomeCategories.value + newItem
+                }
+            }
+            CategoryType.GOAL -> {
+                if (_goalCategories.value.none { it.id == id || it.name.equals(trimmed, ignoreCase = true) }) {
+                    _goalCategories.value = _goalCategories.value + newItem
+                }
+            }
+            CategoryType.BUDGET -> {
+                if (_budgetCategories.value.none { it.id == id || it.name.equals(trimmed, ignoreCase = true) }) {
+                    _budgetCategories.value = _budgetCategories.value + newItem
+                }
+            }
+        }
+        return newItem
     }
 
     fun deleteCategory(id: String, type: CategoryType) {

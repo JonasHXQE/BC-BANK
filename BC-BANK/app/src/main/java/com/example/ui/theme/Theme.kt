@@ -1,43 +1,68 @@
 package com.example.ui.theme
 
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = PrimaryViolet,
+    primary = BrandPrimary,
     onPrimary = Color.White,
-    primaryContainer = PrimaryVioletDark,
-    onPrimaryContainer = PrimaryVioletLight,
-    secondary = AccentGold,
-    onSecondary = BackgroundDark,
-    secondaryContainer = SurfaceElevated,
-    onSecondaryContainer = TextPrimary,
-    tertiary = AccentCyan,
+    primaryContainer = SurfaceCard,
+    onPrimaryContainer = TextPrimary,
+    secondary = BrandPrimaryLight,
+    onSecondary = Color.Black,
+    tertiary = CurrencyPurple,
     background = BackgroundDark,
     onBackground = TextPrimary,
     surface = SurfaceDark,
     onSurface = TextPrimary,
-    surfaceVariant = SurfaceCard,
+    surfaceVariant = SurfaceElevated,
     onSurfaceVariant = TextSecondary,
-    outline = BorderDark,
-    outlineVariant = BorderSubtle,
-    error = ExpenseRed,
-    onError = Color.White,
-    errorContainer = ExpenseRedDark,
-    onErrorContainer = ExpenseRedLight
+    outline = BorderDark
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = BrandPrimary,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFE0EFFF),
+    onPrimaryContainer = Color(0xFF001D47),
+    secondary = Color(0xFF0284C7),
+    onSecondary = Color.White,
+    tertiary = Color(0xFF0369A1),
+    background = Color(0xFFF8FAFC),
+    onBackground = Color(0xFF0F172A),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF0F172A),
+    surfaceVariant = Color(0xFFF1F5F9),
+    onSurfaceVariant = Color(0xFF475569),
+    outline = Color(0xFFCBD5E1)
 )
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
+
     MaterialTheme(
-        colorScheme = DarkColorScheme,
+        colorScheme = colorScheme,
         typography = Typography,
         content = content
     )
 }
-

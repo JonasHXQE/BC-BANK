@@ -97,7 +97,14 @@ class MainActivity : FragmentActivity() {
         connectivityObserver = NetworkConnectivityObserver(applicationContext)
         enableEdgeToEdge()
         setContent {
-            MyApplicationTheme {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val isDark = when (themeMode) {
+                "DARK" -> true
+                "LIGHT" -> false
+                else -> isSystemDark
+            }
+            MyApplicationTheme(darkTheme = isDark, dynamicColor = false) {
                 val context = LocalContext.current
                 val permissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
@@ -155,7 +162,6 @@ class MainActivity : FragmentActivity() {
                                         viewModel.registerAccount(email, pass)
                                     },
                                     onGoogleSignIn = {
-                                        viewModel.setGoogleAuthProcessing("Iniciando conexión segura con Google...")
                                         coroutineScope.launch {
                                             GoogleAuthHelper.launchGoogleSignIn(
                                                 context = context,
@@ -237,14 +243,25 @@ class MainActivity : FragmentActivity() {
                             }
 
                             SessionState.LOCKED -> {
+                                val activity = context as? androidx.fragment.app.FragmentActivity
+                                val pinError by viewModel.pinError.collectAsStateWithLifecycle()
                                 SecurityPinScreen(
                                     userName = viewModel.getUserName(),
                                     isBiometricAllowed = viewModel.isBiometricEnabled(),
+                                    errorMessage = pinError,
                                     onPinEntered = { pin ->
                                         viewModel.unlockWithPin(pin)
                                     },
-                                    onBiometricSuccess = {
-                                        viewModel.unlockWithBiometrics()
+                                    onRequestBiometric = {
+                                        if (activity != null && viewModel.isBiometricEnabled()) {
+                                            com.example.ui.util.BiometricAuthManager.authenticate(
+                                                activity = activity,
+                                                onSuccess = {
+                                                    viewModel.unlockWithBiometrics()
+                                                },
+                                                onError = { _ -> }
+                                            )
+                                        }
                                     },
                                     onLogout = {
                                         viewModel.logout()
@@ -291,9 +308,16 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        if (!isChangingConfigurations && viewModel.sessionState.value == SessionState.AUTHENTICATED) {
+            viewModel.lockSession()
+        }
+    }
+
     override fun onStop() {
         super.onStop()
-        if (viewModel.sessionState.value == SessionState.AUTHENTICATED) {
+        if (!isChangingConfigurations && viewModel.sessionState.value == SessionState.AUTHENTICATED) {
             viewModel.lockSession()
         }
     }
@@ -319,6 +343,7 @@ fun MainAppScreen(viewModel: FintechViewModel) {
     val userEmail by viewModel.userEmail.collectAsStateWithLifecycle()
     val userDni by viewModel.userDni.collectAsStateWithLifecycle()
     val userAccountType by viewModel.userAccountType.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val supportChannels by viewModel.supportChannels.collectAsStateWithLifecycle()
 
     // Dialog states
@@ -561,6 +586,8 @@ fun MainAppScreen(viewModel: FintechViewModel) {
                             supportChannels = supportChannels,
                             isBiometricEnabled = viewModel.isBiometricEnabled(),
                             isPushNotificationsEnabled = viewModel.isPushNotificationsEnabled(),
+                            currentThemeMode = themeMode,
+                            onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
                             onToggleBiometric = { enabled -> viewModel.setBiometricEnabled(enabled) },
                             onTogglePushNotifications = { enabled -> viewModel.setPushNotificationsEnabled(enabled) },
                             onUpdatePin = { newPin -> viewModel.updateUserPin(newPin) },

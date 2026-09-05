@@ -656,7 +656,13 @@ fun DashboardScreen(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf("ALL" to "Todos", "INCOME" to "Ingresos", "EXPENSE" to "Egresos").forEach { (key, label) ->
+                    listOf(
+                        "ALL" to "Todos",
+                        "SERVICES" to "Pago de Servicios",
+                        "TRANSFERS" to "Transferencias",
+                        "DEPOSITS" to "Depósitos",
+                        "WITHDRAWALS" to "Retiros"
+                    ).forEach { (key, label) ->
                         val isSelected = selectedFilter == key
                         Box(
                             modifier = Modifier
