@@ -567,6 +567,7 @@ fun MainAppScreen(viewModel: FintechViewModel) {
                             onUpdatePhone = { newPhone, pin1, pin2, onResult ->
                                 viewModel.updateUserPhone(newPhone, pin1, pin2, onResult)
                             },
+                            onOpenNotifications = { viewModel.openNotificationsWindow() },
                             onBack = { viewModel.closeActiveWindow() },
                             onShowCopiedAlert = { message ->
                                 viewModel.showAlert(

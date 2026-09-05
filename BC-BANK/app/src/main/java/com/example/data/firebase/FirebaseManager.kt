@@ -37,27 +37,83 @@ import java.util.UUID
 object FirebaseManager {
     private const val TAG = "FirebaseManager"
     
-    private var isFirebaseAvailable: Boolean = false
+    private var _isFirebaseAvailable: Boolean? = null
     private var appContext: Context? = null
+
+    val isFirebaseAvailable: Boolean
+        get() {
+            if (_isFirebaseAvailable == true) return true
+            return try {
+                val available = FirebaseApp.getApps(appContext ?: FirebaseApp.getInstance().applicationContext).isNotEmpty()
+                _isFirebaseAvailable = available
+                available
+            } catch (e: Exception) {
+                try {
+                    val available = FirebaseApp.getInstance() != null
+                    _isFirebaseAvailable = available
+                    available
+                } catch (e2: Exception) {
+                    false
+                }
+            }
+        }
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
         try {
             if (FirebaseApp.getApps(context).isNotEmpty()) {
-                isFirebaseAvailable = true
+                _isFirebaseAvailable = true
                 Log.d(TAG, "Firebase initialized successfully")
             } else {
                 val app = FirebaseApp.initializeApp(context)
-                isFirebaseAvailable = app != null
-                Log.d(TAG, "FirebaseApp initialized: $isFirebaseAvailable")
+                _isFirebaseAvailable = app != null
+                Log.d(TAG, "FirebaseApp initialized: $_isFirebaseAvailable")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Firebase init notice: ${e.message}")
-            isFirebaseAvailable = false
+            _isFirebaseAvailable = false
         }
     }
 
     fun isConfigured(): Boolean = isFirebaseAvailable
+
+    internal fun DocumentSnapshot.getDoubleSafe(field: String, default: Double = 0.0): Double {
+        val raw = get(field) ?: return default
+        return when (raw) {
+            is Number -> raw.toDouble()
+            is String -> raw.toDoubleOrNull() ?: default
+            else -> default
+        }
+    }
+
+    internal fun DocumentSnapshot.getLongSafe(field: String, default: Long = 0L): Long {
+        val raw = get(field) ?: return default
+        return when (raw) {
+            is Number -> raw.toLong()
+            is String -> raw.toLongOrNull() ?: default
+            else -> default
+        }
+    }
+
+    internal fun DocumentSnapshot.getStringSafe(field: String, default: String = ""): String {
+        val raw = get(field) ?: return default
+        return when (raw) {
+            is String -> raw
+            is Number -> raw.toString()
+            is Boolean -> raw.toString()
+            else -> raw.toString()
+        }
+    }
+
+    internal fun DocumentSnapshot.getBooleanSafe(field: String, default: Boolean = false): Boolean {
+        val raw = get(field) ?: return default
+        return when (raw) {
+            is Boolean -> raw
+            is String -> raw.toBooleanStrictOrNull() ?: default
+            is Number -> raw.toInt() != 0
+            else -> default
+        }
+    }
 
     fun getCurrentUserUid(): String? {
         if (!isFirebaseAvailable) return null
@@ -803,19 +859,24 @@ object FirebaseManager {
             val db = FirebaseFirestore.getInstance()
             val pinDoc = db.collection("security_pins").document(uid).get().await()
             val pinFromDedicated = if (pinDoc.exists()) {
-                pinDoc.getString("pin")
-                    ?: pinDoc.getLong("pin")?.toString()?.padStart(6, '0')
-                    ?: pinDoc.get("pin")?.toString()
+                val p = pinDoc.getStringSafe("pin", "")
+                if (p.isNotBlank()) p else {
+                    val num = pinDoc.getLongSafe("pin", -1L)
+                    if (num >= 0) num.toString().padStart(6, '0') else null
+                }
             } else null
 
             if (!pinFromDedicated.isNullOrBlank()) {
                 pinFromDedicated.trim()
             } else {
                 val userDoc = db.collection("users").document(uid).get().await()
-                val pinFromUser = userDoc.getString("securityPin")
-                    ?: userDoc.getLong("securityPin")?.toString()?.padStart(6, '0')
-                    ?: userDoc.get("securityPin")?.toString()
-                if (!pinFromUser.isNullOrBlank()) pinFromUser.trim() else null
+                val pinFromUser = userDoc.getStringSafe("securityPin", "")
+                if (pinFromUser.isNotBlank()) {
+                    pinFromUser.trim()
+                } else {
+                    val num = userDoc.getLongSafe("securityPin", -1L)
+                    if (num >= 0) num.toString().padStart(6, '0') else null
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "getUserSecurityPin error: ${e.message}")
@@ -1046,18 +1107,18 @@ object FirebaseManager {
 
     private fun mapWithdrawalDoc(doc: DocumentSnapshot): CloudWithdrawal {
         return CloudWithdrawal(
-            id = doc.getString("id") ?: doc.id,
-            uid = doc.getString("uid") ?: "",
-            userDni = doc.getString("userDni") ?: "",
-            userPhone = doc.getString("userPhone") ?: "",
-            accountHolder = doc.getString("accountHolder") ?: "Usuario BC-BANK",
-            amount = doc.getDouble("amount") ?: 0.0,
-            pinCode = doc.getString("pinCode") ?: "",
-            opCode = doc.getString("opCode") ?: "",
-            qrData = doc.getString("qrData") ?: "",
-            status = doc.getString("status") ?: "PENDING",
-            createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-            expiresAt = doc.getLong("expiresAt") ?: (System.currentTimeMillis() + 3600000L)
+            id = doc.getStringSafe("id", doc.id),
+            uid = doc.getStringSafe("uid", ""),
+            userDni = doc.getStringSafe("userDni", ""),
+            userPhone = doc.getStringSafe("userPhone", ""),
+            accountHolder = doc.getStringSafe("accountHolder", "Usuario BC-BANK"),
+            amount = doc.getDoubleSafe("amount", 0.0),
+            pinCode = doc.getStringSafe("pinCode", ""),
+            opCode = doc.getStringSafe("opCode", ""),
+            qrData = doc.getStringSafe("qrData", ""),
+            status = doc.getStringSafe("status", "PENDING"),
+            createdAt = doc.getLongSafe("createdAt", System.currentTimeMillis()),
+            expiresAt = doc.getLongSafe("expiresAt", System.currentTimeMillis() + 3600000L)
         )
     }
 
@@ -1440,36 +1501,37 @@ object FirebaseManager {
             val db = FirebaseFirestore.getInstance()
             val snap = db.collection("services").get().await()
             if (snap.isEmpty) {
-                emptyList()
+                seedDefaultPublicServicesIfEmpty()
+                getDefaultServices()
             } else {
                 val cloudServices = snap.documents.mapNotNull { doc ->
-                    val name = doc.getString("name") ?: return@mapNotNull null
+                    val name = doc.getStringSafe("name", "").ifBlank { return@mapNotNull null }
                     PublicService(
                         id = doc.id,
                         name = name,
-                        category = doc.getString("category") ?: "Servicios Públicos",
-                        code = doc.getString("code") ?: "",
-                        fee = doc.getDouble("fee") ?: 0.0,
-                        commission = doc.getDouble("commission") ?: 0.0,
-                        description = doc.getString("description") ?: "",
-                        supplyCodeLabel = doc.getString("supplyCodeLabel") ?: "Código de Suministro / N° de Recibo",
-                        supplyCodePlaceholder = doc.getString("supplyCodePlaceholder") ?: "Ej: 1849204",
-                        supplyCodeMinLength = doc.getLong("supplyCodeMinLength")?.toInt() ?: 4,
-                        active = doc.getBoolean("active") ?: true,
-                        priority = doc.getLong("priority")?.toInt() ?: 1
+                        category = doc.getStringSafe("category", "Servicios Públicos"),
+                        code = doc.getStringSafe("code", ""),
+                        fee = doc.getDoubleSafe("fee", 0.0),
+                        commission = doc.getDoubleSafe("commission", 0.0),
+                        description = doc.getStringSafe("description", ""),
+                        supplyCodeLabel = doc.getStringSafe("supplyCodeLabel", "Código de Suministro / N° de Recibo"),
+                        supplyCodePlaceholder = doc.getStringSafe("supplyCodePlaceholder", "Ej: 1849204"),
+                        supplyCodeMinLength = doc.getLongSafe("supplyCodeMinLength", 4L).toInt(),
+                        active = doc.getBooleanSafe("active", true),
+                        priority = doc.getLongSafe("priority", 1L).toInt()
                     )
                 }
                 cloudServices.sortedBy { it.priority }
             }
         } catch (e: Exception) {
             Log.w(TAG, "getPublicServices from Firestore failed: ${e.message}")
-            emptyList()
+            getDefaultServices()
         }
     }
 
     fun listenToPublicServices(onServicesUpdated: (List<PublicService>) -> Unit): ListenerRegistration? {
         if (!isFirebaseAvailable) {
-            onServicesUpdated(emptyList())
+            onServicesUpdated(getDefaultServices())
             return null
         }
 
@@ -1478,36 +1540,39 @@ object FirebaseManager {
             db.collection("services").addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.w(TAG, "listenToPublicServices Firestore error: ${error.message}")
-                    onServicesUpdated(emptyList())
+                    onServicesUpdated(getDefaultServices())
                     return@addSnapshotListener
                 }
                 if (snapshot == null || snapshot.isEmpty) {
-                    onServicesUpdated(emptyList())
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        seedDefaultPublicServicesIfEmpty()
+                    }
+                    onServicesUpdated(getDefaultServices())
                 } else {
                     val list = snapshot.documents.mapNotNull { doc ->
-                        val name = doc.getString("name") ?: return@mapNotNull null
+                        val name = doc.getStringSafe("name", "").ifBlank { return@mapNotNull null }
                         PublicService(
                             id = doc.id,
                             name = name,
-                            category = doc.getString("category") ?: "Servicios Públicos",
-                            code = doc.getString("code") ?: "",
-                            fee = doc.getDouble("fee") ?: 0.0,
-                            commission = doc.getDouble("commission") ?: 0.0,
-                            description = doc.getString("description") ?: "",
-                            supplyCodeLabel = doc.getString("supplyCodeLabel") ?: "Código de Suministro / N° de Recibo",
-                            supplyCodePlaceholder = doc.getString("supplyCodePlaceholder") ?: "Ej: 1849204",
-                            supplyCodeMinLength = doc.getLong("supplyCodeMinLength")?.toInt() ?: 4,
-                            active = doc.getBoolean("active") ?: true,
-                            priority = doc.getLong("priority")?.toInt() ?: 1
+                            category = doc.getStringSafe("category", "Servicios Públicos"),
+                            code = doc.getStringSafe("code", ""),
+                            fee = doc.getDoubleSafe("fee", 0.0),
+                            commission = doc.getDoubleSafe("commission", 0.0),
+                            description = doc.getStringSafe("description", ""),
+                            supplyCodeLabel = doc.getStringSafe("supplyCodeLabel", "Código de Suministro / N° de Recibo"),
+                            supplyCodePlaceholder = doc.getStringSafe("supplyCodePlaceholder", "Ej: 1849204"),
+                            supplyCodeMinLength = doc.getLongSafe("supplyCodeMinLength", 4L).toInt(),
+                            active = doc.getBooleanSafe("active", true),
+                            priority = doc.getLongSafe("priority", 1L).toInt()
                         )
                     }.sortedBy { it.priority }
 
-                    onServicesUpdated(list)
+                    onServicesUpdated(if (list.isNotEmpty()) list else getDefaultServices())
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "listenToPublicServices setup failed: ${e.message}")
-            onServicesUpdated(emptyList())
+            onServicesUpdated(getDefaultServices())
             null
         }
     }
@@ -1742,15 +1807,15 @@ object FirebaseManager {
                     return@addSnapshotListener
                 }
                 val channels = snapshot.documents.mapNotNull { doc ->
-                    val type = doc.getString("type")?.uppercase() ?: "WHATSAPP"
-                    val title = doc.getString("title") ?: "Canal de Soporte"
-                    val value = doc.getString("value") ?: ""
-                    val isAvailable = doc.getBoolean("isAvailable") ?: doc.getBoolean("available") ?: true
-                    val isPrimary = doc.getBoolean("isPrimary") ?: doc.getBoolean("primary") ?: false
-                    val priority = doc.getLong("priority")?.toInt() ?: 10
-                    val actionUrl = doc.getString("actionUrl") ?: ""
-                    val description = doc.getString("description") ?: ""
-                    val updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                    val type = doc.getStringSafe("type", "WHATSAPP").uppercase()
+                    val title = doc.getStringSafe("title", "Canal de Soporte")
+                    val value = doc.getStringSafe("value", "")
+                    val isAvailable = if (doc.contains("isAvailable")) doc.getBooleanSafe("isAvailable", true) else doc.getBooleanSafe("available", true)
+                    val isPrimary = if (doc.contains("isPrimary")) doc.getBooleanSafe("isPrimary", false) else doc.getBooleanSafe("primary", false)
+                    val priority = doc.getLongSafe("priority", 10L).toInt()
+                    val actionUrl = doc.getStringSafe("actionUrl", "")
+                    val description = doc.getStringSafe("description", "")
+                    val updatedAt = doc.getLongSafe("updatedAt", System.currentTimeMillis())
 
                     SupportChannel(
                         id = doc.id,
@@ -2084,54 +2149,57 @@ object FirebaseManager {
         onAccountDetailsChanged: ((AccountInfoEntity) -> Unit)? = null,
         onSavingsGoalsChanged: ((List<SavingsGoalEntity>) -> Unit)? = null,
         onBudgetsChanged: ((List<BudgetEntity>) -> Unit)? = null,
-        onTransactionsChanged: ((List<TransactionEntity>) -> Unit)? = null
+        onTransactionsChanged: ((List<TransactionEntity>) -> Unit)? = null,
+        onNotificationsChanged: ((List<BankNotificationEntity>) -> Unit)? = null
     ): List<ListenerRegistration> {
         if (!isFirebaseAvailable || uid.isBlank() || uid == "local_user") return emptyList()
         val listeners = mutableListOf<ListenerRegistration>()
         try {
             val db = FirebaseFirestore.getInstance()
 
-            // 1. Account balance and details listener
+            // 1. Account balance and details listener (from subcollection account/main)
             val accListener = db.collection("users").document(uid).collection("account").document("main")
                 .addSnapshotListener { snapshot, err ->
                     if (err != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                    val balance = snapshot.getDouble("balance")
-                    if (balance != null) {
-                        onAccountBalanceChanged(balance)
-                    }
+                    val balance = snapshot.getDoubleSafe("balance", 0.0)
+                    onAccountBalanceChanged(balance)
                     if (onAccountDetailsChanged != null) {
                         val accEntity = AccountInfoEntity(
                             id = 1,
-                            accountHolder = snapshot.getString("accountHolder") ?: "",
-                            bankName = snapshot.getString("bankName") ?: "Cuenta de Ahorros BC-BANK",
-                            accountNumber = snapshot.getString("accountNumber") ?: "",
-                            cciNumber = snapshot.getString("cciNumber") ?: "",
-                            cardLastFour = snapshot.getString("cardLastFour") ?: "",
-                            balance = balance ?: 0.0
+                            accountHolder = snapshot.getStringSafe("accountHolder", ""),
+                            bankName = snapshot.getStringSafe("bankName", "Cuenta de Ahorros BC-BANK"),
+                            accountNumber = snapshot.getStringSafe("accountNumber", ""),
+                            cciNumber = snapshot.getStringSafe("cciNumber", ""),
+                            cardLastFour = snapshot.getStringSafe("cardLastFour", ""),
+                            balance = balance
                         )
                         onAccountDetailsChanged(accEntity)
                     }
                 }
             listeners.add(accListener)
 
-            // 2. User profile listener
-            if (onProfileChanged != null) {
-                val profListener = db.collection("users").document(uid)
-                    .addSnapshotListener { snapshot, err ->
-                        if (err != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                        val name = snapshot.getString("fullName") ?: ""
-                        val phone = snapshot.getString("phone") ?: ""
-                        val dni = snapshot.getString("dni") ?: ""
-                        val accountType = snapshot.getString("accountType") ?: "Cuenta de Ahorros BC-BANK"
-                        val isBusiness = snapshot.getBoolean("isBusiness") ?: false
-                        val bName = snapshot.getString("businessName") ?: ""
-                        val bRuc = snapshot.getString("businessRuc") ?: ""
-                        if (dni.isNotBlank() || name.isNotBlank()) {
-                            onProfileChanged(name, phone, dni, accountType, isBusiness, bName, bRuc)
+            // 2. User profile listener & root balance listener
+            val profListener = db.collection("users").document(uid)
+                .addSnapshotListener { snapshot, err ->
+                    if (err != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                    val name = snapshot.getStringSafe("fullName", "")
+                    val phone = snapshot.getStringSafe("phone", "")
+                    val dni = snapshot.getStringSafe("dni", "")
+                    val accountType = snapshot.getStringSafe("accountType", "Cuenta de Ahorros BC-BANK")
+                    val isBusiness = snapshot.getBooleanSafe("isBusiness", false)
+                    val bName = snapshot.getStringSafe("businessName", "")
+                    val bRuc = snapshot.getStringSafe("businessRuc", "")
+                    if (dni.isNotBlank() || name.isNotBlank()) {
+                        onProfileChanged?.invoke(name, phone, dni, accountType, isBusiness, bName, bRuc)
+                    }
+                    if (snapshot.contains("balance")) {
+                        val rootBalance = snapshot.getDoubleSafe("balance", -1.0)
+                        if (rootBalance >= 0.0) {
+                            onAccountBalanceChanged(rootBalance)
                         }
                     }
-                listeners.add(profListener)
-            }
+                }
+            listeners.add(profListener)
 
             // 3. Savings Goals listener
             if (onSavingsGoalsChanged != null) {
@@ -2139,18 +2207,20 @@ object FirebaseManager {
                     .addSnapshotListener { snapshot, err ->
                         if (err != null || snapshot == null) return@addSnapshotListener
                         val goals = snapshot.documents.mapNotNull { doc ->
-                            val name = doc.getString("name") ?: return@mapNotNull null
-                            val target = doc.getDouble("targetAmount") ?: 0.0
-                            val current = doc.getDouble("currentAmount") ?: 0.0
-                            val st = doc.getString("status") ?: if (current >= target && target > 0) "COMPLETED" else "IN_PROGRESS"
+                            val name = doc.getStringSafe("name", "").ifBlank { return@mapNotNull null }
+                            val target = doc.getDoubleSafe("targetAmount", 0.0)
+                            val current = doc.getDoubleSafe("currentAmount", 0.0)
+                            val st = doc.getStringSafe("status", if (current >= target && target > 0) "COMPLETED" else "IN_PROGRESS")
+                            val rawId = doc.getLongSafe("id", -1L)
+                            val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
                             SavingsGoalEntity(
-                                id = doc.getLong("id") ?: 0L,
+                                id = finalId,
                                 name = name,
                                 targetAmount = target,
                                 currentAmount = current,
-                                categoryIcon = doc.getString("categoryIcon") ?: "OTHER",
-                                targetDate = doc.getString("targetDate") ?: "",
-                                colorHex = doc.getString("colorHex") ?: "#10B981",
+                                categoryIcon = doc.getStringSafe("categoryIcon", "OTHER"),
+                                targetDate = doc.getStringSafe("targetDate", ""),
+                                colorHex = doc.getStringSafe("colorHex", "#10B981"),
                                 status = st
                             )
                         }
@@ -2159,19 +2229,21 @@ object FirebaseManager {
                 listeners.add(goalsListener)
             }
 
-            // 5. Budgets listener
+            // 4. Budgets listener
             if (onBudgetsChanged != null) {
                 val budgetsListener = db.collection("users").document(uid).collection("budgets")
                     .addSnapshotListener { snapshot, err ->
                         if (err != null || snapshot == null) return@addSnapshotListener
                         val budgets = snapshot.documents.mapNotNull { doc ->
-                            val cat = doc.getString("category") ?: return@mapNotNull null
+                            val cat = doc.getStringSafe("category", "").ifBlank { return@mapNotNull null }
+                            val rawId = doc.getLongSafe("id", -1L)
+                            val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
                             BudgetEntity(
-                                id = doc.getLong("id") ?: 0L,
+                                id = finalId,
                                 category = cat,
-                                monthlyLimit = doc.getDouble("monthlyLimit") ?: 0.0,
-                                spentAmount = doc.getDouble("spentAmount") ?: 0.0,
-                                iconName = doc.getString("iconName") ?: "OTHER"
+                                monthlyLimit = doc.getDoubleSafe("monthlyLimit", 0.0),
+                                spentAmount = doc.getDoubleSafe("spentAmount", 0.0),
+                                iconName = doc.getStringSafe("iconName", "OTHER")
                             )
                         }
                         onBudgetsChanged(budgets)
@@ -2179,28 +2251,56 @@ object FirebaseManager {
                 listeners.add(budgetsListener)
             }
 
-            // 6. Transactions listener
+            // 5. Transactions listener
             if (onTransactionsChanged != null) {
                 val txListener = db.collection("users").document(uid).collection("transactions")
                     .addSnapshotListener { snapshot, err ->
                         if (err != null || snapshot == null) return@addSnapshotListener
                         val txs = snapshot.documents.mapNotNull { doc ->
-                            val title = doc.getString("title") ?: return@mapNotNull null
+                            val title = doc.getStringSafe("title", doc.getStringSafe("concept", "")).ifBlank { return@mapNotNull null }
+                            val rawId = doc.getLongSafe("id", -1L)
+                            val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
                             TransactionEntity(
-                                id = doc.getLong("id") ?: 0L,
+                                id = finalId,
                                 title = title,
-                                amount = doc.getDouble("amount") ?: 0.0,
-                                type = doc.getString("type") ?: "EXPENSE",
-                                category = doc.getString("category") ?: "General",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
-                                recipientOrSender = doc.getString("recipientOrSender") ?: "",
-                                referenceNumber = doc.getString("referenceNumber") ?: doc.id,
-                                note = doc.getString("note") ?: ""
+                                amount = doc.getDoubleSafe("amount", 0.0),
+                                type = doc.getStringSafe("type", "EXPENSE"),
+                                category = doc.getStringSafe("category", "General"),
+                                timestamp = doc.getLongSafe("timestamp", doc.getLongSafe("date", System.currentTimeMillis())),
+                                recipientOrSender = doc.getStringSafe("recipientOrSender", doc.getStringSafe("recipient", "")),
+                                referenceNumber = doc.getStringSafe("referenceNumber", doc.id),
+                                note = doc.getStringSafe("note", "")
                             )
                         }
                         onTransactionsChanged(txs)
                     }
                 listeners.add(txListener)
+            }
+
+            // 6. Notifications listener
+            if (onNotificationsChanged != null) {
+                val notifListener = db.collection("users").document(uid).collection("notifications")
+                    .addSnapshotListener { snapshot, err ->
+                        if (err != null || snapshot == null) return@addSnapshotListener
+                        val notifs = snapshot.documents.mapNotNull { doc ->
+                            val title = doc.getStringSafe("title", "").ifBlank { return@mapNotNull null }
+                            val rawId = doc.getLongSafe("id", -1L)
+                            val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
+                            BankNotificationEntity(
+                                id = finalId,
+                                uid = uid,
+                                title = title,
+                                message = doc.getStringSafe("message", ""),
+                                category = doc.getStringSafe("category", "Seguridad"),
+                                timestamp = doc.getLongSafe("timestamp", System.currentTimeMillis()),
+                                isRead = doc.getBooleanSafe("isRead", false),
+                                amountTag = doc.getStringSafe("amountTag", "").ifBlank { null },
+                                type = doc.getStringSafe("type", "GENERAL")
+                            )
+                        }
+                        onNotificationsChanged(notifs)
+                    }
+                listeners.add(notifListener)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to attach real-time listeners: ${e.message}")
@@ -2210,122 +2310,162 @@ object FirebaseManager {
 
 
     suspend fun loadUserDataFromFirestore(uid: String): UserCloudData? {
-        if (!isFirebaseAvailable) return null
+        if (!isFirebaseAvailable || uid.isBlank() || uid == "local_user") return null
         return try {
             val db = FirebaseFirestore.getInstance()
             
             // Get user profile
             val userDoc = db.collection("users").document(uid).get().await()
-            val fullName = userDoc.getString("fullName") ?: "Usuario BC-BANK"
-            val dni = userDoc.getString("dni") ?: ""
-            val phone = userDoc.getString("phone") ?: ""
-            val email = userDoc.getString("email") ?: (FirebaseAuth.getInstance().currentUser?.email ?: "")
-            val accountType = userDoc.getString("accountType") ?: "Cuenta de Ahorros BC-BANK"
-            val isBusiness = userDoc.getBoolean("isBusiness") ?: false
-            val businessName = userDoc.getString("businessName") ?: ""
-            val businessRuc = userDoc.getString("businessRuc") ?: ""
-            val profileComplete = userDoc.getBoolean("profileComplete") ?: (dni.isNotBlank() && fullName.isNotBlank() && fullName != "Usuario BC-BANK")
+            val fullName = userDoc.getStringSafe("fullName", "Usuario BC-BANK")
+            val dni = userDoc.getStringSafe("dni", "")
+            val phone = userDoc.getStringSafe("phone", "")
+            val email = userDoc.getStringSafe("email", FirebaseAuth.getInstance().currentUser?.email ?: "")
+            val accountType = userDoc.getStringSafe("accountType", "Cuenta de Ahorros BC-BANK")
+            val isBusiness = userDoc.getBooleanSafe("isBusiness", false)
+            val businessName = userDoc.getStringSafe("businessName", "")
+            val businessRuc = userDoc.getStringSafe("businessRuc", "")
+            val profileComplete = userDoc.getBooleanSafe("profileComplete", dni.isNotBlank() && fullName.isNotBlank() && fullName != "Usuario BC-BANK")
 
-            // Get account
-            val accountDoc = db.collection("users").document(uid).collection("account").document("main").get().await()
-            val account = if (accountDoc.exists()) {
+            // Get account (try subcollection, then fallback to userDoc root)
+            val accountDoc = try {
+                db.collection("users").document(uid).collection("account").document("main").get().await()
+            } catch (e: Exception) { null }
+
+            val account = if (accountDoc != null && accountDoc.exists()) {
                 AccountInfoEntity(
                     id = 1,
-                    accountHolder = accountDoc.getString("accountHolder") ?: fullName,
-                    bankName = accountDoc.getString("bankName") ?: accountType,
-                    accountNumber = accountDoc.getString("accountNumber") ?: "",
-                    cciNumber = accountDoc.getString("cciNumber") ?: "",
-                    cardLastFour = accountDoc.getString("cardLastFour") ?: "",
-                    balance = accountDoc.getDouble("balance") ?: 0.0
+                    accountHolder = accountDoc.getStringSafe("accountHolder", fullName),
+                    bankName = accountDoc.getStringSafe("bankName", accountType),
+                    accountNumber = accountDoc.getStringSafe("accountNumber", ""),
+                    cciNumber = accountDoc.getStringSafe("cciNumber", ""),
+                    cardLastFour = accountDoc.getStringSafe("cardLastFour", ""),
+                    balance = accountDoc.getDoubleSafe("balance", 0.0)
                 )
-            } else if (dni.isNotBlank()) {
-                // Auto-reconstruct deterministic account if missing in subcollection
+            } else {
+                // Fallback to userDoc root fields or deterministic account
+                val balanceFromUser = userDoc.getDoubleSafe("balance", userDoc.getDoubleSafe("initialBalance", 0.0))
                 val dniClean = dni.filter { it.isDigit() }.padStart(8, '0').takeLast(8)
                 val accMid = (10000000L + (dniClean.toLongOrNull() ?: 12345678L) * 7L % 89999999L).toString()
-                val accNum = "194-$accMid-0-88"
-                val cciNum = "002-194-00${dniClean.toLongOrNull() ?: 12345678L}-42"
-                val cardLast4 = dniClean.takeLast(4).ifBlank { "8888" }
+                val accNum = userDoc.getStringSafe("accountNumber", "194-$accMid-0-88")
+                val cciNum = userDoc.getStringSafe("cciNumber", "002-194-00${dniClean.toLongOrNull() ?: 12345678L}-42")
+                val cardLast4 = userDoc.getStringSafe("cardLastFour", dniClean.takeLast(4).ifBlank { "8888" })
                 val newAcc = AccountInfoEntity(
                     id = 1,
-                    accountHolder = fullName,
-                    bankName = accountType,
+                    accountHolder = userDoc.getStringSafe("accountHolder", fullName),
+                    bankName = userDoc.getStringSafe("bankName", accountType),
                     accountNumber = accNum,
                     cciNumber = cciNum,
                     cardLastFour = cardLast4,
-                    balance = 0.0
+                    balance = balanceFromUser
                 )
-                // Persist it
-                syncAccountToFirestore(newAcc, uid)
+                // Persist it into subcollection for next accesses
+                try {
+                    syncAccountToFirestore(newAcc, uid)
+                } catch (_: Exception) {}
                 newAcc
-            } else null
-
-            // Get transactions
-            val txSnap = db.collection("users").document(uid).collection("transactions").get().await()
-            val transactions = txSnap.documents.mapNotNull { doc ->
-                val title = doc.getString("title") ?: return@mapNotNull null
-                TransactionEntity(
-                    id = doc.getLong("id") ?: 0L,
-                    title = title,
-                    amount = doc.getDouble("amount") ?: 0.0,
-                    type = doc.getString("type") ?: "EXPENSE",
-                    category = doc.getString("category") ?: "General",
-                    timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
-                    recipientOrSender = doc.getString("recipientOrSender") ?: "",
-                    referenceNumber = doc.getString("referenceNumber") ?: doc.id,
-                    note = doc.getString("note") ?: ""
-                )
             }
 
+            // Get transactions
+            val txSnap = try {
+                db.collection("users").document(uid).collection("transactions").get().await()
+            } catch (e: Exception) { null }
+            val transactions = txSnap?.documents?.mapNotNull { doc ->
+                val title = doc.getStringSafe("title", doc.getStringSafe("concept", "")).ifBlank { return@mapNotNull null }
+                val rawId = doc.getLongSafe("id", -1L)
+                val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
+                TransactionEntity(
+                    id = finalId,
+                    title = title,
+                    amount = doc.getDoubleSafe("amount", 0.0),
+                    type = doc.getStringSafe("type", "EXPENSE"),
+                    category = doc.getStringSafe("category", "General"),
+                    timestamp = doc.getLongSafe("timestamp", doc.getLongSafe("date", System.currentTimeMillis())),
+                    recipientOrSender = doc.getStringSafe("recipientOrSender", doc.getStringSafe("recipient", "")),
+                    referenceNumber = doc.getStringSafe("referenceNumber", doc.id),
+                    note = doc.getStringSafe("note", "")
+                )
+            } ?: emptyList()
+
             // Get goals
-            val goalsSnap = db.collection("users").document(uid).collection("savings_goals").get().await()
-            val goals = goalsSnap.documents.mapNotNull { doc ->
-                val name = doc.getString("name") ?: return@mapNotNull null
-                val target = doc.getDouble("targetAmount") ?: 0.0
-                val current = doc.getDouble("currentAmount") ?: 0.0
-                val st = doc.getString("status") ?: if (current >= target && target > 0) "COMPLETED" else "IN_PROGRESS"
+            val goalsSnap = try {
+                db.collection("users").document(uid).collection("savings_goals").get().await()
+            } catch (e: Exception) { null }
+            val goals = goalsSnap?.documents?.mapNotNull { doc ->
+                val name = doc.getStringSafe("name", "").ifBlank { return@mapNotNull null }
+                val target = doc.getDoubleSafe("targetAmount", 0.0)
+                val current = doc.getDoubleSafe("currentAmount", 0.0)
+                val st = doc.getStringSafe("status", if (current >= target && target > 0) "COMPLETED" else "IN_PROGRESS")
+                val rawId = doc.getLongSafe("id", -1L)
+                val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
                 SavingsGoalEntity(
-                    id = doc.getLong("id") ?: 0L,
+                    id = finalId,
                     name = name,
                     targetAmount = target,
                     currentAmount = current,
-                    categoryIcon = doc.getString("categoryIcon") ?: "OTHER",
-                    targetDate = doc.getString("targetDate") ?: "",
-                    colorHex = doc.getString("colorHex") ?: "#10B981",
+                    categoryIcon = doc.getStringSafe("categoryIcon", "OTHER"),
+                    targetDate = doc.getStringSafe("targetDate", ""),
+                    colorHex = doc.getStringSafe("colorHex", "#10B981"),
                     status = st
                 )
-            }
+            } ?: emptyList()
 
             // Get budgets
-            val budgetsSnap = db.collection("users").document(uid).collection("budgets").get().await()
-            val budgets = budgetsSnap.documents.mapNotNull { doc ->
-                val cat = doc.getString("category") ?: return@mapNotNull null
+            val budgetsSnap = try {
+                db.collection("users").document(uid).collection("budgets").get().await()
+            } catch (e: Exception) { null }
+            val budgets = budgetsSnap?.documents?.mapNotNull { doc ->
+                val cat = doc.getStringSafe("category", "").ifBlank { return@mapNotNull null }
+                val rawId = doc.getLongSafe("id", -1L)
+                val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
                 BudgetEntity(
-                    id = doc.getLong("id") ?: 0L,
+                    id = finalId,
                     category = cat,
-                    monthlyLimit = doc.getDouble("monthlyLimit") ?: 0.0,
-                    spentAmount = doc.getDouble("spentAmount") ?: 0.0,
-                    iconName = doc.getString("iconName") ?: "OTHER"
+                    monthlyLimit = doc.getDoubleSafe("monthlyLimit", 0.0),
+                    spentAmount = doc.getDoubleSafe("spentAmount", 0.0),
+                    iconName = doc.getStringSafe("iconName", "OTHER")
                 )
-            }
+            } ?: emptyList()
+
+            // Get notifications
+            val notifSnap = try {
+                db.collection("users").document(uid).collection("notifications").get().await()
+            } catch (e: Exception) { null }
+            val notifications = notifSnap?.documents?.mapNotNull { doc ->
+                val title = doc.getStringSafe("title", "").ifBlank { return@mapNotNull null }
+                val rawId = doc.getLongSafe("id", -1L)
+                val finalId = if (rawId > 0) rawId else (doc.id.hashCode().toLong().let { if (it < 0) -it else it })
+                BankNotificationEntity(
+                    id = finalId,
+                    uid = uid,
+                    title = title,
+                    message = doc.getStringSafe("message", ""),
+                    category = doc.getStringSafe("category", "Seguridad"),
+                    timestamp = doc.getLongSafe("timestamp", System.currentTimeMillis()),
+                    isRead = doc.getBooleanSafe("isRead", false),
+                    amountTag = doc.getStringSafe("amountTag", "").ifBlank { null },
+                    type = doc.getStringSafe("type", "GENERAL")
+                )
+            } ?: emptyList()
 
             // Get CIP and Security PIN
-            val pinFromUser = userDoc.getString("securityPin")
-                ?: userDoc.getLong("securityPin")?.toString()?.padStart(6, '0')
-                ?: userDoc.get("securityPin")?.toString()
-            val userPin = if (!pinFromUser.isNullOrBlank()) {
+            val pinFromUser = userDoc.getStringSafe("securityPin", "").ifBlank {
+                val pLong = userDoc.getLongSafe("securityPin", -1L)
+                if (pLong >= 0) pLong.toString().padStart(6, '0') else ""
+            }
+            val userPin = if (pinFromUser.isNotBlank()) {
                 pinFromUser.trim()
             } else {
                 try {
                     val pinDoc = db.collection("security_pins").document(uid).get().await()
-                    val p = pinDoc.getString("pin")
-                        ?: pinDoc.getLong("pin")?.toString()?.padStart(6, '0')
-                        ?: pinDoc.get("pin")?.toString()
-                        ?: ""
+                    val p = pinDoc.getStringSafe("pin", "").ifBlank {
+                        val pL = pinDoc.getLongSafe("pin", -1L)
+                        if (pL >= 0) pL.toString().padStart(6, '0') else ""
+                    }
                     p.trim()
                 } catch (e: Exception) { "" }
             }
 
-            var userCip = userDoc.getString("cipCode") ?: ""
+            var userCip = userDoc.getStringSafe("cipCode", "")
             if (userCip.isBlank() && profileComplete) {
                 userCip = syncUserCipCodeToFirestore(
                     uid = uid,
@@ -2333,8 +2473,8 @@ object FirebaseManager {
                     dni = dni,
                     phone = phone,
                     email = email,
-                    accountNumber = account?.accountNumber ?: "",
-                    cciNumber = account?.cciNumber ?: ""
+                    accountNumber = account.accountNumber,
+                    cciNumber = account.cciNumber
                 ).getOrNull() ?: generateCleanCipCode(uid)
             }
 
@@ -2354,10 +2494,11 @@ object FirebaseManager {
                 account = account,
                 transactions = transactions,
                 savingsGoals = goals,
-                budgets = budgets
+                budgets = budgets,
+                notifications = notifications
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading user data from Firestore: ${e.message}")
+            Log.e(TAG, "Error loading user data from Firestore: ${e.message}", e)
             null
         }
     }
@@ -2486,16 +2627,16 @@ object FirebaseManager {
                     }
                     if (snapshot != null && snapshot.exists()) {
                         val config = AppSystemConfig(
-                            maintenanceActive = snapshot.getBoolean("maintenanceActive") ?: false,
-                            maintenanceType = snapshot.getString("maintenanceType") ?: "TEMPORARY",
-                            maintenanceTitle = snapshot.getString("maintenanceTitle") ?: "Mantenimiento Programado",
-                            maintenanceMessage = snapshot.getString("maintenanceMessage") ?: "Estamos actualizando nuestros servidores bancarios.",
-                            estimatedEnd = snapshot.getString("estimatedEnd") ?: "",
-                            minVersionCode = snapshot.getLong("minVersionCode")?.toInt() ?: 1,
-                            latestVersionCode = snapshot.getLong("latestVersionCode")?.toInt() ?: 1,
-                            forceUpdate = snapshot.getBoolean("forceUpdate") ?: false,
-                            updateUrl = snapshot.getString("updateUrl") ?: "https://bcbank.pe/app-update",
-                            updateMessage = snapshot.getString("updateMessage") ?: "Actualización de seguridad requerida para continuar."
+                            maintenanceActive = snapshot.getBooleanSafe("maintenanceActive", false),
+                            maintenanceType = snapshot.getStringSafe("maintenanceType", "TEMPORARY"),
+                            maintenanceTitle = snapshot.getStringSafe("maintenanceTitle", "Mantenimiento Programado"),
+                            maintenanceMessage = snapshot.getStringSafe("maintenanceMessage", "Estamos actualizando nuestros servidores bancarios."),
+                            estimatedEnd = snapshot.getStringSafe("estimatedEnd", ""),
+                            minVersionCode = snapshot.getLongSafe("minVersionCode", 1L).toInt(),
+                            latestVersionCode = snapshot.getLongSafe("latestVersionCode", 1L).toInt(),
+                            forceUpdate = snapshot.getBooleanSafe("forceUpdate", false),
+                            updateUrl = snapshot.getStringSafe("updateUrl", "https://bcbank.pe/app-update"),
+                            updateMessage = snapshot.getStringSafe("updateMessage", "Actualización de seguridad requerida para continuar.")
                         )
                         onConfigChanged(config)
                     } else {
@@ -2526,9 +2667,9 @@ object FirebaseManager {
                         return@addSnapshotListener
                     }
                     if (snapshot != null && snapshot.exists()) {
-                        val isBlocked = snapshot.getBoolean("isBlocked") ?: true
-                        val reason = snapshot.getString("reason") ?: "Dispositivo bloqueado por prevención de fraudes y seguridad bancaria."
-                        val blockedAt = snapshot.getLong("blockedAt") ?: System.currentTimeMillis()
+                        val isBlocked = snapshot.getBooleanSafe("isBlocked", true)
+                        val reason = snapshot.getStringSafe("reason", "Dispositivo bloqueado por prevención de fraudes y seguridad bancaria.")
+                        val blockedAt = snapshot.getLongSafe("blockedAt", System.currentTimeMillis())
                         onBlockChanged(BlockedDeviceInfo(deviceId = deviceId, isBlocked = isBlocked, reason = reason, blockedAt = blockedAt))
                     } else {
                         onBlockChanged(BlockedDeviceInfo(deviceId = deviceId, isBlocked = false))
@@ -2562,13 +2703,13 @@ object FirebaseManager {
                         try {
                             GlobalAnnouncement(
                                 id = doc.id,
-                                title = doc.getString("title") ?: "Comunicado Oficial",
-                                message = doc.getString("message") ?: "",
-                                category = doc.getString("category") ?: "COMUNICADO_OFICIAL",
-                                priority = doc.getString("priority") ?: "NORMAL",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
-                                actionUrl = doc.getString("actionUrl") ?: "",
-                                active = doc.getBoolean("active") ?: true
+                                title = doc.getStringSafe("title", "Comunicado Oficial"),
+                                message = doc.getStringSafe("message", ""),
+                                category = doc.getStringSafe("category", "COMUNICADO_OFICIAL"),
+                                priority = doc.getStringSafe("priority", "NORMAL"),
+                                timestamp = doc.getLongSafe("timestamp", System.currentTimeMillis()),
+                                actionUrl = doc.getStringSafe("actionUrl", ""),
+                                active = doc.getBooleanSafe("active", true)
                             )
                         } catch (e: Exception) {
                             null
@@ -2651,16 +2792,16 @@ object FirebaseManager {
         return try {
             val db = FirebaseFirestore.getInstance()
             val doc = db.collection("vouchers").document(cleanSerial).get().await()
-            if (doc.exists() && doc.getString("status") == "VERIFIED") {
+            if (doc.exists() && doc.getStringSafe("status", "") == "VERIFIED") {
                 VoucherVerificationResult(
                     isValid = true,
                     serial = cleanSerial,
-                    operationCode = doc.getString("opCode") ?: "OP-$cleanSerial",
-                    transactionTitle = doc.getString("title") ?: "Comprobante Oficial BC-BANK",
-                    amount = doc.getDouble("amount") ?: 0.0,
-                    timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
-                    senderOrRecipient = doc.getString("senderOrRecipient") ?: "Titular BC-BANK",
-                    transactionType = doc.getString("type") ?: "TRANSFER",
+                    operationCode = doc.getStringSafe("opCode", "OP-$cleanSerial"),
+                    transactionTitle = doc.getStringSafe("title", "Comprobante Oficial BC-BANK"),
+                    amount = doc.getDoubleSafe("amount", 0.0),
+                    timestamp = doc.getLongSafe("timestamp", System.currentTimeMillis()),
+                    senderOrRecipient = doc.getStringSafe("senderOrRecipient", "Titular BC-BANK"),
+                    transactionType = doc.getStringSafe("type", "TRANSFER"),
                     isFraudulent = false
                 )
             } else {
@@ -2844,7 +2985,8 @@ data class UserCloudData(
     val account: AccountInfoEntity?,
     val transactions: List<TransactionEntity>,
     val savingsGoals: List<SavingsGoalEntity>,
-    val budgets: List<BudgetEntity>
+    val budgets: List<BudgetEntity>,
+    val notifications: List<BankNotificationEntity> = emptyList()
 )
 
 enum class AccountStatusType {

@@ -89,7 +89,13 @@ class FintechRepository(
                 for (tx in cloudData.transactions) transactionDao.insertTransaction(tx)
                 for (g in cloudData.savingsGoals) savingsGoalDao.insertGoal(g)
                 budgetDao.insertBudgets(cloudData.budgets)
-                recalculateAndSyncBalance()
+                for (n in cloudData.notifications) notificationDao.insertNotification(n)
+
+                if (cloudData.account.balance == 0.0 && cloudData.transactions.isNotEmpty()) {
+                    recalculateAndSyncBalance()
+                } else {
+                    accountDao.updateBalance(cloudData.account.balance)
+                }
             }
         }
     }
@@ -99,6 +105,8 @@ class FintechRepository(
         transactionDao.clearAllTransactions()
         savingsGoalDao.clearAllGoals()
         budgetDao.clearAllBudgets()
+        val uid = getCurrentUid()
+        notificationDao.clearAllNotifications(uid)
     }
 
     suspend fun syncWithCloud(uid: String): UserCloudData? {
@@ -114,7 +122,13 @@ class FintechRepository(
             for (tx in cloudData.transactions) transactionDao.insertTransaction(tx)
             for (g in cloudData.savingsGoals) savingsGoalDao.insertGoal(g)
             budgetDao.insertBudgets(cloudData.budgets)
-            recalculateAndSyncBalance()
+            for (n in cloudData.notifications) notificationDao.insertNotification(n)
+
+            if (cloudData.account.balance == 0.0 && cloudData.transactions.isNotEmpty()) {
+                recalculateAndSyncBalance()
+            } else {
+                accountDao.updateBalance(cloudData.account.balance)
+            }
         } else {
             // Push current local data to Firestore if exists
             val localAccount = accountDao.getAccount()
@@ -123,6 +137,45 @@ class FintechRepository(
             }
         }
         return cloudData
+    }
+
+    suspend fun updateBalanceFromCloud(newBalance: Double) {
+        val current = accountDao.getAccount()
+        if (current != null) {
+            accountDao.updateBalance(newBalance)
+        }
+    }
+
+    suspend fun syncAccountDetailsFromCloud(acc: AccountInfoEntity) {
+        accountDao.insertOrUpdate(acc)
+    }
+
+    suspend fun syncSavingsGoalsFromCloud(goals: List<SavingsGoalEntity>) {
+        savingsGoalDao.clearAllGoals()
+        for (g in goals) {
+            savingsGoalDao.insertGoal(g)
+        }
+    }
+
+    suspend fun syncBudgetsFromCloud(budgets: List<BudgetEntity>) {
+        budgetDao.clearAllBudgets()
+        if (budgets.isNotEmpty()) {
+            budgetDao.insertBudgets(budgets)
+        }
+    }
+
+    suspend fun syncTransactionsFromCloud(txs: List<TransactionEntity>) {
+        transactionDao.clearAllTransactions()
+        for (tx in txs) {
+            transactionDao.insertTransaction(tx)
+        }
+    }
+
+    suspend fun syncNotificationsFromCloud(notifs: List<BankNotificationEntity>, uid: String) {
+        notificationDao.clearAllNotifications(uid)
+        for (n in notifs) {
+            notificationDao.insertNotification(n)
+        }
     }
 
     suspend fun setupNewUser(

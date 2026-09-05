@@ -3,7 +3,7 @@ package com.example.data.local
 import android.content.Context
 import android.content.SharedPreferences
 
-class SessionManager(context: Context) {
+class SessionManager(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("solesfin_session_prefs", Context.MODE_PRIVATE)
 
@@ -149,7 +149,11 @@ class SessionManager(context: Context) {
         prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, enabled).apply()
     }
     
-    fun isBiometricEnabled(): Boolean = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, true)
+    fun isBiometricEnabled(): Boolean {
+        val userWants = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
+        if (!userWants) return false
+        return com.example.ui.util.BiometricAuthManager.isDeviceSecurityConfigured(context)
+    }
 
     fun clearSession() {
         prefs.edit().apply {

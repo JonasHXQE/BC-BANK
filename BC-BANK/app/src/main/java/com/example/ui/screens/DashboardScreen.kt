@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,6 +67,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.AccountInfoEntity
@@ -171,38 +173,55 @@ fun DashboardScreen(
         ) {
         // 1. Header Profile & Bank Tag (Clickable to open Profile & Notifications)
         item {
+            val holderName = account?.accountHolder?.ifBlank { "Usuario" } ?: "Usuario"
+            val firstName = remember(holderName) {
+                holderName.split(" ").firstOrNull { it.isNotBlank() } ?: "Usuario"
+            }
+            val initials = remember(holderName) {
+                holderName.split(" ")
+                    .filter { it.isNotBlank() }
+                    .take(2)
+                    .mapNotNull { it.firstOrNull()?.uppercase() }
+                    .joinToString("")
+                    .ifEmpty { "JH" }
+            }
+            val cleanAccountSubtitle = remember(account?.bankName) {
+                val rawBank = (account?.bankName ?: "").trim()
+                val type = when {
+                    rawBank.contains("Ahorro", ignoreCase = true) -> "Cuenta de Ahorros"
+                    rawBank.contains("Sueldo", ignoreCase = true) -> "Cuenta Sueldo"
+                    rawBank.contains("Dólar", ignoreCase = true) || rawBank.contains("Dolar", ignoreCase = true) -> "Cuenta Dólares"
+                    else -> "Cuenta Corriente"
+                }
+                "$type • BC-BANK"
+            }
+
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
+                        .weight(1f)
                         .clip(RoundedCornerShape(16.dp))
                         .clickable { onOpenProfile() }
-                        .padding(4.dp)
+                        .padding(vertical = 4.dp, horizontal = 2.dp)
                         .testTag("dashboard_profile_button")
                 ) {
-                    val holderName = account?.accountHolder?.ifBlank { "Usuario" } ?: "Usuario"
-                    val firstName = remember(holderName) {
-                        holderName.split(" ").firstOrNull { it.isNotBlank() } ?: "Usuario"
-                    }
-                    val initials = remember(holderName) {
-                        holderName.split(" ")
-                            .filter { it.isNotBlank() }
-                            .take(2)
-                            .mapNotNull { it.firstOrNull()?.uppercase() }
-                            .joinToString("")
-                            .ifEmpty { "JH" }
-                    }
-
                     Box(
                         modifier = Modifier
                             .size(46.dp)
                             .clip(CircleShape)
-                            .background(AvatarPurple)
-                            .border(1.dp, Color(0x33FFFFFF), CircleShape),
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(AvatarPurple, Color(0xFF4F46E5))
+                                )
+                            )
+                            .border(1.5.dp, Color(0x33FFFFFF), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -213,36 +232,46 @@ fun DashboardScreen(
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text = "Hola, $firstName",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.Serif,
-                            color = TextPrimary
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .size(6.dp)
+                                    .size(7.dp)
                                     .clip(CircleShape)
                                     .background(IncomeGreen)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Cuenta Corriente • ${account?.bankName?.ifBlank { "BC Bank" } ?: "BC Bank"}",
+                                text = cleanAccountSubtitle,
                                 fontSize = 12.sp,
-                                color = TextSecondary
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 }
 
+                Spacer(modifier = Modifier.width(12.dp))
+
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF14141B))
+                        .background(Color(0xFF141520))
                         .border(1.dp, BorderGlass, CircleShape)
                         .clickable { onOpenNotifications() }
                         .testTag("dashboard_notifications_button"),
@@ -251,21 +280,29 @@ fun DashboardScreen(
                     Icon(
                         imageVector = Icons.Default.Notifications,
                         contentDescription = "Notificaciones",
-                        tint = Color(0xFFD1D5DB),
-                        modifier = Modifier.size(20.dp)
+                        tint = if (unreadNotificationsCount > 0) Color.White else Color(0xFFD1D5DB),
+                        modifier = Modifier.size(22.dp)
                     )
                     if (unreadNotificationsCount > 0) {
                         Box(
                             modifier = Modifier
-                                .size(10.dp)
                                 .align(Alignment.TopEnd)
-                                .padding(2.dp)
+                                .offset(x = 2.dp, y = (-2).dp)
+                                .size(18.dp)
                                 .clip(CircleShape)
                                 .background(ExpenseRed)
-                        )
+                                .border(1.5.dp, Color(0xFF141520), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (unreadNotificationsCount > 9) "9+" else "$unreadNotificationsCount",
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
-
             }
         }
 

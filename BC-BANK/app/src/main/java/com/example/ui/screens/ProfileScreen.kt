@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
@@ -123,6 +124,7 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.WarningYellow
 import com.example.ui.util.BankNotificationManager
+import com.example.ui.util.BiometricAuthManager
 import com.example.ui.util.CategoryItem
 import com.example.ui.util.CategoryType
 import com.example.ui.util.CustomCategoryManager
@@ -141,6 +143,7 @@ fun ProfileScreen(
     onTogglePushNotifications: (Boolean) -> Unit = {},
     onUpdatePin: (String) -> Unit = {},
     onUpdatePhone: (newPhone: String, pin1: String, pin2: String, onResult: (Boolean, String?) -> Unit) -> Unit = { _, _, _, cb -> cb(true, null) },
+    onOpenNotifications: () -> Unit = {},
     onBack: () -> Unit,
     onShowCopiedAlert: (String) -> Unit,
     onLogout: () -> Unit = {}
@@ -148,7 +151,13 @@ fun ProfileScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
-    var biometricEnabled by remember(isBiometricEnabled) { mutableStateOf(isBiometricEnabled) }
+    val isDeviceSecurityConfigured = remember {
+        BiometricAuthManager.isDeviceSecurityConfigured(context)
+    }
+    var showNoDeviceSecurityDialog by remember { mutableStateOf(false) }
+    var biometricEnabled by remember(isBiometricEnabled, isDeviceSecurityConfigured) {
+        mutableStateOf(isBiometricEnabled && isDeviceSecurityConfigured)
+    }
     var pushNotificationsEnabled by remember(isPushNotificationsEnabled) { mutableStateOf(isPushNotificationsEnabled) }
     var dailyLimit by remember { mutableDoubleStateOf(5000.0) }
 
@@ -879,24 +888,74 @@ fun ProfileScreen(
                             modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Fingerprint, contentDescription = null, tint = EmeraldLight, modifier = Modifier.size(24.dp))
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = null,
+                                tint = if (isDeviceSecurityConfigured) EmeraldLight else AccentGold,
+                                modifier = Modifier.size(24.dp)
+                            )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Bloqueo del Dispositivo / Huella", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                                Text("Permite desbloquear la app con la huella, Face ID o bloqueo de tu teléfono", fontSize = 11.sp, color = TextSecondary)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Bloqueo del Dispositivo / Huella",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextPrimary
+                                    )
+                                    if (!isDeviceSecurityConfigured) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(AccentGold.copy(alpha = 0.15f))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "Sin bloqueo",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = AccentGold
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    text = if (isDeviceSecurityConfigured) {
+                                        "Permite desbloquear la app con la huella, Face ID o bloqueo de tu teléfono"
+                                    } else {
+                                        "Tu teléfono no tiene un método de bloqueo configurado en Ajustes"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = if (isDeviceSecurityConfigured) TextSecondary else AccentGold
+                                )
                             }
                         }
                         Switch(
-                            checked = biometricEnabled,
-                            onCheckedChange = {
-                                biometricEnabled = it
-                                onToggleBiometric(it)
-                                onShowCopiedAlert(if (it) "Acceso por huella/bloqueo activado" else "Acceso por huella/bloqueo desactivado (solo PIN)")
+                            checked = biometricEnabled && isDeviceSecurityConfigured,
+                            onCheckedChange = { desiredState ->
+                                if (desiredState) {
+                                    val hasLock = BiometricAuthManager.isDeviceSecurityConfigured(context)
+                                    if (!hasLock) {
+                                        biometricEnabled = false
+                                        onToggleBiometric(false)
+                                        showNoDeviceSecurityDialog = true
+                                    } else {
+                                        biometricEnabled = true
+                                        onToggleBiometric(true)
+                                        onShowCopiedAlert("Acceso por huella y bloqueo del dispositivo activado")
+                                    }
+                                } else {
+                                    biometricEnabled = false
+                                    onToggleBiometric(false)
+                                    onShowCopiedAlert("Acceso por huella/bloqueo desactivado (solo PIN)")
+                                }
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.Black,
                                 checkedTrackColor = EmeraldPrimary
-                            )
+                            ),
+                            modifier = Modifier.testTag("biometric_switch")
                         )
                     }
 
@@ -990,6 +1049,62 @@ fun ProfileScreen(
                                 checkedThumbColor = Color.Black,
                                 checkedTrackColor = EmeraldPrimary
                             )
+                        )
+                    }
+
+                    HorizontalDivider(color = BorderDark, thickness = 1.dp)
+
+                    // Acceso directo a la Bandeja de Notificaciones
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF141522))
+                            .border(1.dp, BorderGlass, RoundedCornerShape(12.dp))
+                            .clickable { onOpenNotifications() }
+                            .padding(12.dp)
+                            .testTag("btn_open_notifications_from_profile"),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(EmeraldDark),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Notifications,
+                                    contentDescription = null,
+                                    tint = EmeraldLight,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Bandeja de Notificaciones",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Ver historial completo de avisos, depósitos y retiros",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Ver",
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
@@ -1406,6 +1521,73 @@ fun ProfileScreen(
                     Text("Cancelar", color = TextMuted)
                 }
             }
+        )
+    }
+
+    // Dialog: No Device Security Configured
+    if (showNoDeviceSecurityDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showNoDeviceSecurityDialog = false },
+            containerColor = SurfaceDark,
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = AccentGold,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Método de bloqueo requerido",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Tu dispositivo no cuenta con ningún método de bloqueo seguro configurado (huella digital, reconocimiento facial, PIN o patrón de pantalla).",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    )
+                    Text(
+                        text = "Para proteger tu cuenta bancaria con esta función, primero debes configurar un método de bloqueo en los Ajustes de tu teléfono.",
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showNoDeviceSecurityDialog = false
+                        BiometricAuthManager.openDeviceSecuritySettings(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.testTag("btn_open_security_settings")
+                ) {
+                    Text(
+                        text = "Abrir Ajustes",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { showNoDeviceSecurityDialog = false }
+                ) {
+                    Text("Entendido", color = TextSecondary)
+                }
+            },
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.border(1.dp, BorderGlass, RoundedCornerShape(20.dp))
         )
     }
 

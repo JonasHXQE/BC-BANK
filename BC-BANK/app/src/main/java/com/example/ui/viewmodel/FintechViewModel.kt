@@ -23,6 +23,7 @@ import com.example.ui.components.AlertType
 import com.example.ui.components.AppAlert
 import com.example.ui.components.GoogleAuthState
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -206,6 +207,8 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
     fun isBiometricEnabled(): Boolean = sessionManager.isBiometricEnabled()
     fun isPushNotificationsEnabled(): Boolean = true
 
+    private var userEventListeners: List<ListenerRegistration> = emptyList()
+
     init {
         checkSystemConfigAndSecurity()
     }
@@ -219,6 +222,10 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                 FirebaseManager.listenToSupportChannels { channels ->
                     _supportChannels.value = channels
                 }
+                val deviceId = FirebaseManager.getDeviceId(getApplication())
+                FirebaseManager.listenToDeviceBlock(deviceId) { blockInfo ->
+                    _deviceBlock.value = blockInfo
+                }
                 val uid = FirebaseManager.getCurrentUserUid()
                 if (uid != null) {
                     FirebaseManager.listenToUserAccountStatus(uid) { status ->
@@ -231,18 +238,87 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private fun startUserFirestoreSync(uid: String) {
+        stopUserFirestoreSync()
+        try {
+            userEventListeners = FirebaseManager.listenToUserIncomingEvents(
+                uid = uid,
+                onAccountBalanceChanged = { newBalance ->
+                    viewModelScope.launch {
+                        repository.updateBalanceFromCloud(newBalance)
+                    }
+                },
+                onProfileChanged = { name, phone, dni, accountType, _, _, _ ->
+                    if (phone.isNotBlank()) {
+                        _userPhone.value = phone
+                        sessionManager.setUserPhone(phone)
+                    }
+                    if (dni.isNotBlank()) {
+                        _userDni.value = dni
+                        sessionManager.setUserDni(dni)
+                    }
+                    if (accountType.isNotBlank()) {
+                        _userAccountType.value = accountType
+                        sessionManager.setAccountType(accountType)
+                    }
+                    if (name.isNotBlank()) {
+                        sessionManager.setUserName(name)
+                    }
+                },
+                onAccountDetailsChanged = { account ->
+                    viewModelScope.launch {
+                        repository.syncAccountDetailsFromCloud(account)
+                    }
+                },
+                onSavingsGoalsChanged = { goals ->
+                    viewModelScope.launch {
+                        repository.syncSavingsGoalsFromCloud(goals)
+                    }
+                },
+                onBudgetsChanged = { budgets ->
+                    viewModelScope.launch {
+                        repository.syncBudgetsFromCloud(budgets)
+                    }
+                },
+                onTransactionsChanged = { txs ->
+                    viewModelScope.launch {
+                        repository.syncTransactionsFromCloud(txs)
+                    }
+                },
+                onNotificationsChanged = { notifs ->
+                    viewModelScope.launch {
+                        repository.syncNotificationsFromCloud(notifs, uid)
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            Log.w("FintechViewModel", "Error starting user Firestore sync: ${e.message}")
+        }
+    }
+
+    private fun stopUserFirestoreSync() {
+        try {
+            userEventListeners.forEach { it.remove() }
+            userEventListeners = emptyList()
+        } catch (e: Exception) {
+            Log.w("FintechViewModel", "Error stopping user Firestore sync: ${e.message}")
+        }
+    }
+
     fun onSplashFinished() {
         viewModelScope.launch {
             val isLogged = sessionManager.isLoggedIn()
             val firebaseUser = FirebaseAuth.getInstance().currentUser
 
             if (isLogged && firebaseUser != null) {
+                val uid = firebaseUser.uid
+                startUserFirestoreSync(uid)
+
                 // If logged in, require PIN unlock for banking security
                 val pin = sessionManager.getUserPin()
                 if (pin.isNotBlank()) {
                     _sessionState.value = SessionState.LOCKED
                 } else {
-                    val uid = firebaseUser.uid
                     val cloudPin = FirebaseManager.getUserSecurityPin(uid)
                     if (!cloudPin.isNullOrBlank()) {
                         sessionManager.setUserPin(cloudPin)
@@ -383,6 +459,7 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
             _sessionState.value = SessionState.AUTHENTICATED
             _toastEvent.emit("¡Bienvenido a BC-BANK, ${currentState.displayName}!")
 
+            startUserFirestoreSync(currentState.uid)
             repository.checkAndSeedInitialData()
         }
     }
@@ -561,6 +638,8 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                 // 3. Sync profile and 6-digit PIN to Firestore
                 FirebaseManager.updateUserPin(uid, cleanPin)
 
+                startUserFirestoreSync(uid)
+
                 _authLoading.value = false
                 _sessionState.value = SessionState.AUTHENTICATED
                 _toastEvent.emit("¡Bienvenido a BC-BANK! Tu cuenta ha sido activada.")
@@ -599,6 +678,10 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
             }
 
             if (isValid) {
+                val uid = FirebaseManager.getCurrentUserUid()
+                if (uid != null) {
+                    startUserFirestoreSync(uid)
+                }
                 _sessionState.value = SessionState.AUTHENTICATED
             } else {
                 _toastEvent.emit("PIN de seguridad incorrecto")
@@ -607,6 +690,10 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun unlockWithBiometrics() {
+        val uid = FirebaseManager.getCurrentUserUid()
+        if (uid != null) {
+            startUserFirestoreSync(uid)
+        }
         _sessionState.value = SessionState.AUTHENTICATED
     }
 
@@ -616,6 +703,7 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
 
     fun logout() {
         viewModelScope.launch {
+            stopUserFirestoreSync()
             FirebaseAuth.getInstance().signOut()
             sessionManager.clearSession()
             repository.clearLocalData()
@@ -643,6 +731,7 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
                 return@launch
             }
             try {
+                stopUserFirestoreSync()
                 val user = FirebaseAuth.getInstance().currentUser
                 user?.delete()?.await()
                 sessionManager.clearSession()
@@ -1055,5 +1144,10 @@ class FintechViewModel(application: Application) : AndroidViewModel(application)
 
     fun showAlert(alert: AppAlert) {
         _activeAlert.value = alert
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopUserFirestoreSync()
     }
 }

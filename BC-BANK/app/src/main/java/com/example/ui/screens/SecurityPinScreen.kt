@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.content.ContextWrapper
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -43,12 +44,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.fragment.app.FragmentActivity
 import com.example.ui.theme.AccentGold
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.BorderGlass
@@ -62,6 +65,7 @@ import com.example.ui.theme.SurfaceDark
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import com.example.ui.util.BiometricAuthManager
 
 @Composable
 fun SecurityPinScreen(
@@ -71,8 +75,54 @@ fun SecurityPinScreen(
     onBiometricSuccess: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val activity = remember(context) {
+        var ctx = context
+        while (ctx is ContextWrapper) {
+            if (ctx is FragmentActivity) return@remember ctx
+            ctx = ctx.baseContext
+        }
+        null
+    }
+
+    val isDeviceSecure = remember(context) {
+        BiometricAuthManager.isDeviceSecurityConfigured(context)
+    }
+    val canUseBiometrics = isBiometricAllowed && isDeviceSecure
+
     var enteredPin by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf<String?>(null) }
+
+    val triggerBiometricPrompt = {
+        if (activity != null && canUseBiometrics) {
+            BiometricAuthManager.authenticate(
+                activity = activity,
+                title = "Desbloqueo de BC-BANK",
+                subtitle = "Usa tu huella, rostro o bloqueo del teléfono",
+                onSuccess = {
+                    onBiometricSuccess()
+                },
+                onError = { errorCode, errString ->
+                    if (errorCode != androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED &&
+                        errorCode != androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
+                        errorCode != androidx.biometric.BiometricPrompt.ERROR_CANCELED
+                    ) {
+                        pinError = errString
+                    }
+                },
+                onFailed = {
+                    pinError = "No reconocido. Intenta con tu huella o ingresa tu PIN."
+                }
+            )
+        }
+    }
+
+    LaunchedEffect(canUseBiometrics) {
+        if (canUseBiometrics && activity != null) {
+            kotlinx.coroutines.delay(200)
+            triggerBiometricPrompt()
+        }
+    }
 
     LaunchedEffect(enteredPin) {
         if (enteredPin.length == 6) {
@@ -176,6 +226,37 @@ fun SecurityPinScreen(
                         textAlign = TextAlign.Center
                     )
                 }
+
+                if (canUseBiometrics) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF141620))
+                            .border(1.dp, BorderGlass, RoundedCornerShape(20.dp))
+                            .clickable {
+                                pinError = null
+                                triggerBiometricPrompt()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                            .testTag("biometric_quick_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fingerprint,
+                            contentDescription = "Desbloquear con biometría",
+                            tint = EmeraldPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Usar huella / bloqueo",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = EmeraldLight
+                        )
+                    }
+                }
             }
 
             // Numeric Keypad
@@ -202,19 +283,23 @@ fun SecurityPinScreen(
                         row.forEach { key ->
                             when (key) {
                                 "BIO" -> {
-                                    if (isBiometricAllowed) {
+                                    if (canUseBiometrics) {
                                         Box(
                                             modifier = Modifier
                                                 .size(68.dp)
                                                 .clip(CircleShape)
                                                 .background(SurfaceCard)
                                                 .border(1.dp, BorderGlass, CircleShape)
-                                                .clickable { onBiometricSuccess() },
+                                                .clickable {
+                                                    pinError = null
+                                                    triggerBiometricPrompt()
+                                                }
+                                                .testTag("keypad_biometric_button"),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Fingerprint,
-                                                contentDescription = "Huella Digital",
+                                                contentDescription = "Huella Digital o Bloqueo",
                                                 tint = EmeraldPrimary,
                                                 modifier = Modifier.size(30.dp)
                                             )

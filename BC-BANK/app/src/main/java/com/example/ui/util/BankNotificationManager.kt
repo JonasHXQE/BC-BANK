@@ -8,7 +8,9 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.example.MainActivity
+import com.example.R
 
 object BankNotificationManager {
     private const val CHANNEL_ID = "bcbank_operations"
@@ -51,7 +53,8 @@ object BankNotificationManager {
         val displayText = if (!amountTag.isNullOrBlank()) "$message [$amountTag]" else message
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.emerald_primary))
             .setContentTitle(title)
             .setContentText(displayText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(displayText))
